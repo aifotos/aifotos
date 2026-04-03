@@ -130,6 +130,26 @@ CREATE POLICY "historial_fondo: solo el propio perfil"
   USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
   WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
 
+-- 7. TABLA: pagos_tarjeta
+-- Registra pagos desde una cuenta hacia una tarjeta de crédito (no es un gasto, es una transferencia)
+CREATE TABLE IF NOT EXISTS pagos_tarjeta (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  perfil_id         UUID NOT NULL REFERENCES perfiles(id) ON DELETE CASCADE,
+  cuenta_origen_id  UUID NOT NULL REFERENCES cuentas(id) ON DELETE CASCADE,
+  cuenta_destino_id UUID NOT NULL REFERENCES cuentas(id) ON DELETE CASCADE,
+  monto             NUMERIC(14,2) NOT NULL,
+  fecha             DATE NOT NULL,
+  notas             TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE pagos_tarjeta ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "pagos_tarjeta: solo el propio perfil"
+  ON pagos_tarjeta FOR ALL
+  USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
+  WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
+
 -- =====================================================
 -- MIGRACIÓN: Agregar tipo 'ahorro' a cuentas
 -- Ejecuta esto si ya tienes la tabla creada:

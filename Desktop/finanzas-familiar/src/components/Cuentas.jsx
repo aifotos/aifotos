@@ -298,6 +298,8 @@ export default function Cuentas() {
   const [gastosPorCuenta, setGastosPorCuenta] = useState({});
   const [movimientosPorCuenta, setMovimientosPorCuenta] = useState({});
   const [historialPorCuenta, setHistorialPorCuenta] = useState({});
+  const [pagosOrigenPorCuenta, setPagosOrigenPorCuenta] = useState({});
+  const [pagosDestinoPorCuenta, setPagosDestinoPorCuenta] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Modal crear
@@ -393,6 +395,21 @@ export default function Cuentas() {
       });
       setMovimientosPorCuenta(movs);
     }
+
+    // Pagos a tarjeta (para ajustar balances de cuentas origen y destino)
+    const { data: pagosTarjeta } = await supabase
+      .from("pagos_tarjeta")
+      .select("cuenta_origen_id, cuenta_destino_id, monto")
+      .eq("perfil_id", perfil.id);
+
+    const pagosOrigen = {};
+    const pagosDestino = {};
+    (pagosTarjeta || []).forEach((p) => {
+      pagosOrigen[p.cuenta_origen_id] = (pagosOrigen[p.cuenta_origen_id] || 0) + Number(p.monto);
+      pagosDestino[p.cuenta_destino_id] = (pagosDestino[p.cuenta_destino_id] || 0) + Number(p.monto);
+    });
+    setPagosOrigenPorCuenta(pagosOrigen);
+    setPagosDestinoPorCuenta(pagosDestino);
 
     // Historial para cuentas de ahorro
     const ahorroIds = cuentasData.filter((c) => c.tipo === "ahorro").map((c) => c.id);
@@ -629,10 +646,12 @@ ALTER TABLE cuentas ADD CONSTRAINT cuentas_tipo_check
           {cuentasOrdenadas.map((c) => {
             const { valor, variacion } = getAhorroInfo(c);
             const movs = movimientosPorCuenta[c.id] || { ingresos: 0, gastos: 0 };
+            const pagosSalientes = pagosOrigenPorCuenta[c.id] || 0;
+            const pagosRecibidos = pagosDestinoPorCuenta[c.id] || 0;
             const valorReal = (c.tipo === "debito" || c.tipo === "efectivo")
-              ? Number(c.balance_inicial) + movs.ingresos - movs.gastos
+              ? Number(c.balance_inicial) + movs.ingresos - movs.gastos - pagosSalientes
               : valor;
-            const balanceCredito = movs.gastos - movs.ingresos;
+            const balanceCredito = movs.gastos - movs.ingresos - pagosRecibidos;
             return (
               <CuentaCard
                 key={c.id}
