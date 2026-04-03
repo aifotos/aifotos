@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient.js";
-import { Pencil, History, TrendingUp, TrendingDown, Minus, ArrowLeftRight } from "lucide-react";
+import { Pencil, History, TrendingUp, TrendingDown, Minus, ArrowLeftRight, Gift } from "lucide-react";
 
 const TIPOS = [
   { value: "debito", label: "Débito", icon: "💳" },
@@ -40,7 +40,7 @@ function Modal({ open, onClose, children, wide }) {
   );
 }
 
-function CuentaCard({ cuenta, gastado, valorActual, variacion, balanceCredito, onEdit, onHistorial }) {
+function CuentaCard({ cuenta, gastado, valorActual, variacion, balanceCredito, esBalanceManual, onEdit, onHistorial, onCashback }) {
   const esCredito = cuenta.tipo === "credito";
   const esAhorro = cuenta.tipo === "ahorro";
   const esEfectivo = cuenta.tipo === "efectivo";
@@ -80,6 +80,11 @@ function CuentaCard({ cuenta, gastado, valorActual, variacion, balanceCredito, o
               Corte: {cuenta.dia_corte} · Pago: {cuenta.dia_pago}
             </span>
           )}
+          {esCredito && esBalanceManual && (
+            <span className="text-[11px] text-blue-400/80 bg-blue-500/10 px-2 py-1 rounded-full">
+              Balance manual
+            </span>
+          )}
           {esAhorro && (
             <button
               onClick={() => onHistorial(cuenta)}
@@ -87,6 +92,15 @@ function CuentaCard({ cuenta, gastado, valorActual, variacion, balanceCredito, o
               title="Ver historial / actualizar"
             >
               <History size={14} />
+            </button>
+          )}
+          {esCredito && (
+            <button
+              onClick={() => onCashback(cuenta)}
+              className="text-gray-500 hover:text-green-400 transition p-1 rounded-lg hover:bg-gray-800"
+              title="Registrar cashback"
+            >
+              <Gift size={14} />
             </button>
           )}
           {!esEfectivo && (
@@ -115,7 +129,9 @@ function CuentaCard({ cuenta, gastado, valorActual, variacion, balanceCredito, o
           </div>
           <div className="flex justify-between">
             <div>
-              <p className="text-[11px] text-gray-500">Balance actual</p>
+              <p className="text-[11px] text-gray-500">
+                Balance actual{esBalanceManual ? " (ajustado)" : ""}
+              </p>
               <p className="text-lg font-bold text-red-400">{fmt(balanceOwed)}</p>
             </div>
             <div className="text-right">
@@ -300,6 +316,10 @@ export default function Cuentas() {
   const [historialPorCuenta, setHistorialPorCuenta] = useState({});
   const [pagosOrigenPorCuenta, setPagosOrigenPorCuenta] = useState({});
   const [pagosDestinoPorCuenta, setPagosDestinoPorCuenta] = useState({});
+  const [cashbackPorCuenta, setCashbackPorCuenta] = useState({});
+  const [cashbackModal, setCashbackModal] = useState(null);
+  const [cashbackForm, setCashbackForm] = useState({ monto: "", fecha: new Date().toISOString().split("T")[0], notas: "" });
+  const [cashbackSaving, setCashbackSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Modal crear
@@ -411,6 +431,21 @@ export default function Cuentas() {
     setPagosOrigenPorCuenta(pagosOrigen);
     setPagosDestinoPorCuenta(pagosDestino);
 
+    // Cashback por tarjeta de crédito
+    const creditoIdsAll = cuentasData.filter((c) => c.tipo === "credito").map((c) => c.id);
+    if (creditoIdsAll.length > 0) {
+      const { data: cashbacks } = await supabase
+        .from("cashback_tarjeta")
+        .select("cuenta_id, monto")
+        .eq("perfil_id", perfil.id)
+        .in("cuenta_id", creditoIdsAll);
+      const cbPorCuenta = {};
+      (cashbacks || []).forEach((cb) => {
+        cbPorCuenta[cb.cuenta_id] = (cbPorCuenta[cb.cuenta_id] || 0) + Number(cb.monto);
+      });
+      setCashbackPorCuenta(cbPorCuenta);
+    }
+
     // Historial para cuentas de ahorro
     const ahorroIds = cuentasData.filter((c) => c.tipo === "ahorro").map((c) => c.id);
     if (ahorroIds.length > 0) {
@@ -451,6 +486,21 @@ export default function Cuentas() {
     await fetchCuentas();
   };
 
+  const handleCashback = async () => {
+    if (!cashbackForm.monto || !cashbackModal) return;
+    setCashbackSaving(true);
+    await supabase.from("cashback_tarjeta").insert({
+      perfil_id: perfil.id,
+      cuenta_id: cashbackModal.id,
+      monto: parseFloat(cashbackForm.monto),
+      fecha: cashbackForm.fecha,
+      notas: cashbackForm.notas?.trim() || null,
+    });
+    setCashbackModal(null);
+    setCashbackSaving(false);
+    fetchCuentas();
+  };
+
   const handleOpenEdit = (cuenta) => {
     setEditando(cuenta);
     // Para débito y efectivo, mostrar el balance real calculado (balance_inicial + ingresos - gastos)
@@ -469,6 +519,10 @@ export default function Cuentas() {
       limite_credito: cuenta.tipo === "credito" ? String(cuenta.limite_credito ?? "") : "",
       dia_corte: cuenta.dia_corte ? String(cuenta.dia_corte) : "",
       dia_pago: cuenta.dia_pago ? String(cuenta.dia_pago) : "",
+      balance_manual:
+        cuenta.tipo === "credito" && cuenta.balance_manual !== null && cuenta.balance_manual !== undefined
+          ? String(cuenta.balance_manual)
+          : "",
     });
   };
 
@@ -496,6 +550,10 @@ export default function Cuentas() {
         editando.tipo === "credito" && editForm.dia_corte ? Number(editForm.dia_corte) : null,
       dia_pago:
         editando.tipo === "credito" && editForm.dia_pago ? Number(editForm.dia_pago) : null,
+      balance_manual:
+        editando.tipo === "credito" && editForm.balance_manual !== ""
+          ? Number(editForm.balance_manual)
+          : null,
     };
 
     await supabase.from("cuentas").update(payload).eq("id", editando.id);
@@ -648,10 +706,13 @@ ALTER TABLE cuentas ADD CONSTRAINT cuentas_tipo_check
             const movs = movimientosPorCuenta[c.id] || { ingresos: 0, gastos: 0 };
             const pagosSalientes = pagosOrigenPorCuenta[c.id] || 0;
             const pagosRecibidos = pagosDestinoPorCuenta[c.id] || 0;
+            const cashbackTotal = cashbackPorCuenta[c.id] || 0;
             const valorReal = (c.tipo === "debito" || c.tipo === "efectivo")
               ? Number(c.balance_inicial) + movs.ingresos - movs.gastos - pagosSalientes
               : valor;
-            const balanceCredito = movs.gastos - movs.ingresos - pagosRecibidos;
+            const balanceCreditoCalculado = Math.max(0, movs.gastos - movs.ingresos - pagosRecibidos - cashbackTotal);
+            const esBalanceManual = c.balance_manual !== null && c.balance_manual !== undefined;
+            const balanceCredito = esBalanceManual ? Number(c.balance_manual) : balanceCreditoCalculado;
             return (
               <CuentaCard
                 key={c.id}
@@ -660,8 +721,13 @@ ALTER TABLE cuentas ADD CONSTRAINT cuentas_tipo_check
                 valorActual={valorReal}
                 variacion={variacion}
                 balanceCredito={balanceCredito}
+                esBalanceManual={esBalanceManual}
                 onEdit={handleOpenEdit}
                 onHistorial={setCuentaHistorial}
+                onCashback={(cuenta) => {
+                  setCashbackModal(cuenta);
+                  setCashbackForm({ monto: "", fecha: new Date().toISOString().split("T")[0], notas: "" });
+                }}
               />
             );
           })}
@@ -846,6 +912,33 @@ ALTER TABLE cuentas ADD CONSTRAINT cuentas_tipo_check
                     />
                   </div>
                 </div>
+                <div className="border-t border-gray-800 pt-4">
+                  <label className="text-xs text-gray-400 mb-1 block">
+                    Balance manual (RD$)
+                  </label>
+                  <p className="text-xs text-gray-600 mb-2">
+                    Opcional. Si lo defines, reemplaza el balance calculado automáticamente.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={editForm.balance_manual}
+                      onChange={(e) => setEditForm({ ...editForm, balance_manual: e.target.value })}
+                      placeholder="0.00"
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition"
+                    />
+                    {editForm.balance_manual !== "" && (
+                      <button
+                        type="button"
+                        onClick={() => setEditForm({ ...editForm, balance_manual: "" })}
+                        className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded-xl transition"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                </div>
               </>
             )}
 
@@ -869,6 +962,57 @@ ALTER TABLE cuentas ADD CONSTRAINT cuentas_tipo_check
             onAddEntry={handleAddHistorialEntry}
           />
         )}
+      </Modal>
+
+      {/* Modal cashback */}
+      <Modal open={!!cashbackModal} onClose={() => setCashbackModal(null)}>
+        <div className="flex items-center gap-3 mb-5">
+          <span className="text-2xl">💰</span>
+          <div>
+            <h3 className="text-lg font-bold text-white">Registrar cashback</h3>
+            <p className="text-xs text-gray-500">{cashbackModal?.nombre}</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Monto (RD$)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={cashbackForm.monto}
+              onChange={(e) => setCashbackForm({ ...cashbackForm, monto: e.target.value })}
+              placeholder="0.00"
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-green-500 transition"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Fecha</label>
+            <input
+              type="date"
+              value={cashbackForm.fecha}
+              onChange={(e) => setCashbackForm({ ...cashbackForm, fecha: e.target.value })}
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-green-500 transition"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Notas (opcional)</label>
+            <input
+              type="text"
+              value={cashbackForm.notas}
+              onChange={(e) => setCashbackForm({ ...cashbackForm, notas: e.target.value })}
+              placeholder="Ej: Cashback de enero"
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-green-500 transition"
+            />
+          </div>
+          <button
+            onClick={handleCashback}
+            disabled={cashbackSaving || !cashbackForm.monto}
+            className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-xl transition"
+          >
+            {cashbackSaving ? "Guardando..." : "Registrar cashback"}
+          </button>
+        </div>
       </Modal>
 
       {/* Modal transferencia */}

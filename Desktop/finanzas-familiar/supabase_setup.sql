@@ -150,6 +150,31 @@ CREATE POLICY "pagos_tarjeta: solo el propio perfil"
   USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
   WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
 
+-- 8. TABLA: cashback_tarjeta
+-- Registra cashbacks del banco que reducen la deuda de una tarjeta de crédito
+CREATE TABLE IF NOT EXISTS cashback_tarjeta (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  perfil_id  UUID NOT NULL REFERENCES perfiles(id) ON DELETE CASCADE,
+  cuenta_id  UUID NOT NULL REFERENCES cuentas(id) ON DELETE CASCADE,
+  monto      NUMERIC(14,2) NOT NULL,
+  fecha      DATE NOT NULL,
+  notas      TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE cashback_tarjeta ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "cashback_tarjeta: solo el propio perfil"
+  ON cashback_tarjeta FOR ALL
+  USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
+  WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
+
+-- =====================================================
+-- MIGRACIÓN: Agregar balance_manual a cuentas (para tarjetas de crédito)
+-- Ejecuta esto si ya tienes la tabla creada:
+-- =====================================================
+-- ALTER TABLE cuentas ADD COLUMN IF NOT EXISTS balance_manual NUMERIC(14,2) DEFAULT NULL;
+
 -- =====================================================
 -- MIGRACIÓN: Agregar tipo 'ahorro' a cuentas
 -- Ejecuta esto si ya tienes la tabla creada:
