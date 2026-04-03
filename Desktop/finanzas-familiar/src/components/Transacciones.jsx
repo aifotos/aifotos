@@ -1,0 +1,570 @@
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../context/AuthContext";
+import {
+  Plus,
+  X,
+  Loader2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Trash2,
+} from "lucide-react";
+
+const fmt = (n) =>
+  Number(n).toLocaleString("es-DO", {
+    style: "currency",
+    currency: "DOP",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+
+const fmtFecha = (f) =>
+  new Date(f + "T00:00:00").toLocaleDateString("es-DO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+export default function Transacciones() {
+  const { perfil } = useAuth();
+  const [transacciones, setTransacciones] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [cuentas, setCuentas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatForm, setNewCatForm] = useState({ nombre: "", icono: "", tipo: "gasto" });
+  const [creatingCat, setCreatingCat] = useState(false);
+  const [form, setForm] = useState({
+    monto: "",
+    fecha: new Date().toISOString().split("T")[0],
+    notas: "",
+    categoria_id: "",
+    cuenta_id: "",
+  });
+
+  useEffect(() => {
+    if (!perfil?.id) return;
+    fetchAll();
+  }, [perfil?.id]);
+
+  async function fetchAll() {
+    setLoading(true);
+    const [txRes, catRes, cuentaRes] = await Promise.all([
+      supabase
+        .from("transacciones")
+        .select(
+          "id, monto, fecha, notas, created_at, categorias(nombre, icono, tipo), cuentas(nombre)"
+        )
+        .eq("perfil_id", perfil.id)
+        .order("fecha", { ascending: false })
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("categorias")
+        .select("id, nombre, icono, tipo")
+        .eq("perfil_id", perfil.id)
+        .order("nombre"),
+      supabase
+        .from("cuentas")
+        .select("id, nombre, tipo")
+        .eq("perfil_id", perfil.id)
+        .order("nombre"),
+    ]);
+    setTransacciones(txRes.data || []);
+    setCategorias(catRes.data || []);
+    setCuentas(cuentaRes.data || []);
+    setLoading(false);
+  }
+
+  function openModal() {
+    setForm({
+      monto: "",
+      fecha: new Date().toISOString().split("T")[0],
+      notas: "",
+      categoria_id: "",
+      cuenta_id: "",
+    });
+    setShowNewCat(false);
+    setNewCatForm({ nombre: "", icono: "", tipo: "gasto" });
+    setModalOpen(true);
+  }
+
+  async function handleCreateCat() {
+    if (!newCatForm.nombre.trim() || !newCatForm.icono.trim()) return;
+    setCreatingCat(true);
+    const { data: nueva } = await supabase
+      .from("categorias")
+      .insert({
+        perfil_id: perfil.id,
+        nombre: newCatForm.nombre.trim(),
+        icono: newCatForm.icono.trim(),
+        tipo: newCatForm.tipo,
+      })
+      .select()
+      .single();
+    await fetchAll();
+    if (nueva) updateForm("categoria_id", nueva.id);
+    setShowNewCat(false);
+    setNewCatForm({ nombre: "", icono: "", tipo: "gasto" });
+    setCreatingCat(false);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.monto || !form.cuenta_id || !form.categoria_id) return;
+    setSaving(true);
+
+    const { error } = await supabase.from("transacciones").insert({
+      perfil_id: perfil.id,
+      cuenta_id: form.cuenta_id,
+      categoria_id: form.categoria_id,
+      monto: parseFloat(form.monto),
+      fecha: form.fecha,
+      notas: form.notas || null,
+    });
+
+    if (!error) {
+      setModalOpen(false);
+      fetchAll();
+    }
+    setSaving(false);
+  }
+
+  async function handleDelete(id) {
+    const { error } = await supabase
+      .from("transacciones")
+      .delete()
+      .eq("id", id);
+    if (!error) {
+      setTransacciones((prev) => prev.filter((t) => t.id !== id));
+    }
+  }
+
+  function updateForm(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSeedCategorias() {
+    setSeeding(true);
+    const defaults = [
+      { nombre: "Salario", icono: "💼", tipo: "ingreso" },
+      { nombre: "Freelance", icono: "💻", tipo: "ingreso" },
+      { nombre: "Negocio", icono: "🏢", tipo: "ingreso" },
+      { nombre: "Inversiones", icono: "📈", tipo: "ingreso" },
+      { nombre: "Otros ingresos", icono: "💰", tipo: "ingreso" },
+      { nombre: "Supermercado", icono: "🛒", tipo: "gasto" },
+      { nombre: "Alquiler/Vivienda", icono: "🏠", tipo: "gasto" },
+      { nombre: "Servicios (Luz, Agua)", icono: "⚡", tipo: "gasto" },
+      { nombre: "Transporte", icono: "🚗", tipo: "gasto" },
+      { nombre: "Restaurantes", icono: "🍔", tipo: "gasto" },
+      { nombre: "Salud", icono: "💊", tipo: "gasto" },
+      { nombre: "Educación", icono: "📚", tipo: "gasto" },
+      { nombre: "Ropa", icono: "👗", tipo: "gasto" },
+      { nombre: "Entretenimiento", icono: "🎬", tipo: "gasto" },
+      { nombre: "Pago tarjeta", icono: "💳", tipo: "gasto" },
+      { nombre: "Pago préstamo", icono: "🏦", tipo: "gasto" },
+      { nombre: "Tecnología", icono: "📱", tipo: "gasto" },
+      { nombre: "Otros gastos", icono: "💸", tipo: "gasto" },
+    ];
+    await supabase.from("categorias").insert(
+      defaults.map((c) => ({ ...c, perfil_id: perfil.id }))
+    );
+    await fetchAll();
+    setSeeding(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="animate-spin text-emerald-400" size={32} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-white">Transacciones</h1>
+        <button
+          onClick={openModal}
+          className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+        >
+          <Plus size={16} />
+          Nueva
+        </button>
+      </div>
+
+      {/* Tabla */}
+      {transacciones.length === 0 ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center text-gray-500">
+          <span className="text-4xl block mb-3">💸</span>
+          No hay transacciones registradas.
+        </div>
+      ) : (
+        <>
+          {/* Desktop */}
+          <div className="hidden sm:block bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
+                  <th className="text-left px-5 py-3 font-medium">Fecha</th>
+                  <th className="text-left px-5 py-3 font-medium">
+                    Categoría
+                  </th>
+                  <th className="text-left px-5 py-3 font-medium">Cuenta</th>
+                  <th className="text-left px-5 py-3 font-medium">Notas</th>
+                  <th className="text-right px-5 py-3 font-medium">Monto</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {transacciones.map((tx) => {
+                  const esIngreso = tx.categorias?.tipo === "ingreso";
+                  return (
+                    <tr
+                      key={tx.id}
+                      className="hover:bg-gray-800/50 transition-colors"
+                    >
+                      <td className="px-5 py-3 text-gray-400 whitespace-nowrap">
+                        {fmtFecha(tx.fecha)}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="flex items-center gap-2">
+                          <span>{tx.categorias?.icono || "📦"}</span>
+                          <span className="text-gray-200">
+                            {tx.categorias?.nombre || "—"}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-gray-400">
+                        {tx.cuentas?.nombre || "—"}
+                      </td>
+                      <td className="px-5 py-3 text-gray-500 max-w-[200px] truncate">
+                        {tx.notas || "—"}
+                      </td>
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1">
+                          {esIngreso ? (
+                            <ArrowUpRight
+                              size={14}
+                              className="text-emerald-400"
+                            />
+                          ) : (
+                            <ArrowDownRight
+                              size={14}
+                              className="text-red-400"
+                            />
+                          )}
+                          <span
+                            className={`font-semibold tabular-nums ${
+                              esIngreso ? "text-emerald-400" : "text-red-400"
+                            }`}
+                          >
+                            {fmt(tx.monto)}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          onClick={() => handleDelete(tx.id)}
+                          className="text-gray-600 hover:text-red-400 transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile */}
+          <div className="sm:hidden space-y-2">
+            {transacciones.map((tx) => {
+              const esIngreso = tx.categorias?.tipo === "ingreso";
+              return (
+                <div
+                  key={tx.id}
+                  className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xl flex-shrink-0">
+                      {tx.categorias?.icono || "📦"}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-200 truncate">
+                        {tx.categorias?.nombre || "Sin categoría"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {fmtFecha(tx.fecha)} · {tx.cuentas?.nombre}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        esIngreso ? "text-emerald-400" : "text-red-400"
+                      }`}
+                    >
+                      {fmt(tx.monto)}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(tx.id)}
+                      className="text-gray-600 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setModalOpen(false)}
+          />
+          <div className="relative bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-6 space-y-5">
+            {/* Header modal */}
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">
+                Nueva transacción
+              </h2>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Aviso si no hay categorías */}
+            {categorias.length === 0 && (
+              <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3 text-sm">
+                <p className="text-amber-300 font-medium mb-1">No tienes categorías</p>
+                <p className="text-amber-400/80 text-xs mb-2">
+                  Necesitas categorías para registrar transacciones.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSeedCategorias}
+                  disabled={seeding}
+                  className="text-xs bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {seeding ? "Creando..." : "Crear categorías predeterminadas"}
+                </button>
+              </div>
+            )}
+
+            {/* Aviso si no hay cuentas */}
+            {cuentas.length === 0 && (
+              <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 text-sm">
+                <p className="text-blue-300 font-medium mb-1">No tienes cuentas</p>
+                <p className="text-blue-400/80 text-xs">
+                  Ve a la sección "Tarjetas/Cuentas" para crear tu primera cuenta antes de registrar transacciones.
+                </p>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Monto */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Monto (RD$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={form.monto}
+                  onChange={(e) => updateForm("monto", e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Fecha */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Fecha
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={form.fecha}
+                  onChange={(e) => updateForm("fecha", e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Categoría */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Categoría
+                </label>
+                <select
+                  required
+                  value={form.categoria_id}
+                  onChange={(e) => updateForm("categoria_id", e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                >
+                  <option value="" disabled>
+                    Seleccionar categoría
+                  </option>
+                  <optgroup label="Ingresos">
+                    {categorias
+                      .filter((c) => c.tipo === "ingreso")
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.icono} {c.nombre}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="Gastos">
+                    {categorias
+                      .filter((c) => c.tipo === "gasto")
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.icono} {c.nombre}
+                        </option>
+                      ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              {/* Crear nueva categoría inline */}
+              {!showNewCat ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewCat(true)}
+                  className="text-xs text-emerald-500 hover:text-emerald-400 transition -mt-2"
+                >
+                  + Nueva categoría
+                </button>
+              ) : (
+                <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-3 space-y-3 -mt-2">
+                  <p className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
+                    Nueva categoría
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="😀"
+                      maxLength={2}
+                      value={newCatForm.icono}
+                      onChange={(e) => setNewCatForm({ ...newCatForm, icono: e.target.value })}
+                      className="w-12 text-center bg-gray-900 border border-gray-700 rounded-lg px-1 py-2 text-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Nombre"
+                      value={newCatForm.nombre}
+                      onChange={(e) => setNewCatForm({ ...newCatForm, nombre: e.target.value })}
+                      className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-emerald-500 transition"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    {["gasto", "ingreso"].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setNewCatForm({ ...newCatForm, tipo: t })}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${
+                          newCatForm.tipo === t
+                            ? t === "gasto"
+                              ? "bg-red-600/20 border border-red-600 text-red-400"
+                              : "bg-emerald-600/20 border border-emerald-600 text-emerald-400"
+                            : "bg-gray-900 border border-gray-700 text-gray-400"
+                        }`}
+                      >
+                        {t === "gasto" ? "💸 Gasto" : "💰 Ingreso"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewCat(false)}
+                      className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-medium py-2 rounded-lg transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreateCat}
+                      disabled={creatingCat || !newCatForm.nombre.trim() || !newCatForm.icono.trim()}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-medium py-2 rounded-lg transition"
+                    >
+                      {creatingCat ? "Creando..." : "Crear y seleccionar"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Cuenta */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Cuenta
+                </label>
+                <select
+                  required
+                  value={form.cuenta_id}
+                  onChange={(e) => updateForm("cuenta_id", e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                >
+                  <option value="" disabled>
+                    Seleccionar cuenta
+                  </option>
+                  {cuentas.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre} ({c.tipo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Notas */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Notas (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={form.notas}
+                  onChange={(e) => updateForm("notas", e.target.value)}
+                  placeholder="Descripción breve..."
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={saving}
+                className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors"
+              >
+                {saving ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Plus size={16} />
+                )}
+                {saving ? "Guardando..." : "Guardar transacción"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
