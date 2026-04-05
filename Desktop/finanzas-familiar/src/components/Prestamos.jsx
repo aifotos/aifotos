@@ -52,6 +52,7 @@ export default function Prestamos() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
   const [amortizacionCount, setAmortizacionCount] = useState({});
+  const [pagadosEsteMes, setPagadosEsteMes] = useState(new Set());
 
   useEffect(() => {
     if (perfil?.id) {
@@ -92,6 +93,19 @@ export default function Prestamos() {
         countMap[r.prestamo_id] = (countMap[r.prestamo_id] || 0) + 1;
       });
       setAmortizacionCount(countMap);
+
+      // Fetch payments made this month to know which loans are already paid
+      const now = new Date();
+      const inicioMes = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const finMes = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const finMesStr = `${finMes.getFullYear()}-${String(finMes.getMonth() + 1).padStart(2, "0")}-${String(finMes.getDate()).padStart(2, "0")}`;
+      const { data: pagosMes } = await supabase
+        .from("pagos_prestamo")
+        .select("prestamo_id")
+        .eq("perfil_id", perfil.id)
+        .gte("fecha", inicioMes)
+        .lte("fecha", finMesStr);
+      setPagadosEsteMes(new Set((pagosMes || []).map((r) => r.prestamo_id)));
     }
     setLoading(false);
   }
@@ -538,6 +552,11 @@ USING (
                 {/* Botones pago + CSV */}
                 {!terminado && (
                   <div className="space-y-2">
+                    {pagadosEsteMes.has(p.id) ? (
+                      <div className="w-full bg-gray-800 border border-gray-700 text-gray-500 text-sm font-medium py-2 rounded-lg text-center cursor-not-allowed">
+                        ✓ Pago del mes registrado
+                      </div>
+                    ) : (
                     <button
                       onClick={() => openPagoModal(p)}
                       disabled={saving}
@@ -545,6 +564,7 @@ USING (
                     >
                       {saving ? "Cargando..." : "Registrar pago"}
                     </button>
+                    )}
 
                     {/* Tabla de amortización */}
                     {amortizacionCount[p.id] ? (

@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [prestamos, setPrestamos] = useState([])
   const [presupuestos, setPresupuestos] = useState([])
   const [categoriasConPago, setCategoriasConPago] = useState(new Set())
+  const [prestamosPagados, setPrestamosPagados] = useState(new Set())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export default function Dashboard() {
       { data: presupuestosData },
       { data: pagosTarjetaData },
       { data: pagosPrestamoData },
+      { data: pagosPrestamoMesData },
     ] = await Promise.all([
       supabase
         .from('transacciones')
@@ -96,6 +98,12 @@ export default function Dashboard() {
         .from('pagos_prestamo')
         .select('cuenta_id, monto_total')
         .eq('perfil_id', perfil.id),
+      supabase
+        .from('pagos_prestamo')
+        .select('prestamo_id')
+        .eq('perfil_id', perfil.id)
+        .gte('fecha', inicioMes)
+        .lte('fecha', finMes),
     ])
 
     const ahorroIds = new Set((cuentasData || []).filter(c => c.tipo === 'ahorro').map(c => c.id))
@@ -158,10 +166,14 @@ export default function Dashboard() {
     // Set de categoria_ids que ya tienen al menos una transacción este mes
     const pagados = new Set((txMes || []).map(t => t.categoria_id).filter(Boolean))
 
+    // Set de prestamo_ids que ya tienen un pago registrado este mes
+    const prestamosPagadosMes = new Set((pagosPrestamoMesData || []).map(p => p.prestamo_id).filter(Boolean))
+
     setCuentas(cuentasConBalance)
     setPrestamos((prestamosData || []).filter(p => Number(p.monto_restante) > 0))
     setPresupuestos(presupuestosData || [])
     setCategoriasConPago(pagados)
+    setPrestamosPagados(prestamosPagadosMes)
     setTransacciones(ultimas || [])
     setLoading(false)
   }
@@ -239,6 +251,7 @@ export default function Dashboard() {
         prestamos={prestamos}
         presupuestos={presupuestos}
         categoriasConPago={categoriasConPago}
+        prestamosPagados={prestamosPagados}
         fmt={fmt}
       />
 
@@ -301,7 +314,7 @@ export default function Dashboard() {
 
 // ─── Quincena Liquidez Section ───────────────────────────────────────────────
 
-function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago, fmt }) {
+function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago, prestamosPagados, fmt }) {
   const now = new Date()
   const dayOfMonth = now.getDate()
   const currentQ = dayOfMonth <= 15 ? 1 : 2
@@ -401,6 +414,7 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
           total={totalQ1}
           availableBalance={liquidBalance}
           categoriasConPago={categoriasConPago}
+          prestamosPagados={prestamosPagados}
           fmt={fmt}
         />
         <QuincenaCard
@@ -413,6 +427,7 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
           total={totalQ2}
           availableBalance={balanceAfterQ1}
           categoriasConPago={categoriasConPago}
+          prestamosPagados={prestamosPagados}
           fmt={fmt}
         />
       </div>
@@ -424,12 +439,18 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
             Sin fecha de pago definida
           </p>
           <div className="space-y-2">
-            {prestamosSinFecha.map(p => (
-              <div key={p.id} className="flex items-center justify-between text-sm">
-                <span className="text-gray-300">🏦 {p.nombre}</span>
-                <span className="text-amber-400 font-medium tabular-nums">{fmt(p.cuota_mensual)}</span>
-              </div>
-            ))}
+            {prestamosSinFecha.map(p => {
+              const pagado = prestamosPagados?.has(p.id)
+              return (
+                <div key={p.id} className="flex items-center justify-between text-sm">
+                  <span className={`flex items-center gap-1.5 ${pagado ? 'line-through text-gray-600' : 'text-gray-300'}`}>
+                    {pagado && <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />}
+                    🏦 {p.nombre}
+                  </span>
+                  <span className={`font-medium tabular-nums ${pagado ? 'line-through text-gray-600' : 'text-amber-400'}`}>{fmt(p.cuota_mensual)}</span>
+                </div>
+              )
+            })}
             {tarjetasSinFecha.map(c => (
               <div key={c.id} className="flex items-center justify-between text-sm">
                 <span className="text-gray-300">💳 {c.nombre}</span>
@@ -458,7 +479,7 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
   )
 }
 
-function QuincenaCard({ label, range, isCurrent, tarjetas, prestamosItems, presupuestosItems, total, availableBalance, categoriasConPago, fmt }) {
+function QuincenaCard({ label, range, isCurrent, tarjetas, prestamosItems, presupuestosItems, total, availableBalance, categoriasConPago, prestamosPagados, fmt }) {
   function status() {
     if (total === 0) return 'ok'
     const ratio = availableBalance / total
@@ -494,16 +515,22 @@ function QuincenaCard({ label, range, isCurrent, tarjetas, prestamosItems, presu
       {/* Items */}
       {hasItems ? (
         <div className="space-y-1.5">
-          {prestamosItems.map(p => (
-            <div key={p.id} className="flex items-center justify-between text-xs">
-              <span className="text-gray-400 flex items-center gap-1.5">
-                <span className="text-gray-600">🏦</span>
-                {p.nombre}
-                <span className="text-gray-600">· día {p.dia_pago}</span>
-              </span>
-              <span className="text-white font-medium tabular-nums">{fmt(p.cuota_mensual)}</span>
-            </div>
-          ))}
+          {prestamosItems.map(p => {
+            const pagado = prestamosPagados?.has(p.id)
+            return (
+              <div key={p.id} className="flex items-center justify-between text-xs">
+                <span className={`flex items-center gap-1.5 ${pagado ? 'text-gray-600 line-through' : 'text-gray-400'}`}>
+                  {pagado
+                    ? <CheckCircle2 size={10} className="text-emerald-500 flex-shrink-0" />
+                    : <span className="text-gray-600">🏦</span>
+                  }
+                  {p.nombre}
+                  <span className="text-gray-600">· día {p.dia_pago}</span>
+                </span>
+                <span className={`font-medium tabular-nums ${pagado ? 'text-gray-600 line-through' : 'text-white'}`}>{fmt(p.cuota_mensual)}</span>
+              </div>
+            )
+          })}
           {tarjetas.map(c => (
             <div key={c.id} className="flex items-center justify-between text-xs">
               <span className="text-gray-400 flex items-center gap-1.5">
