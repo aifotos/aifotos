@@ -316,6 +316,7 @@ export default function Cuentas() {
   const [historialPorCuenta, setHistorialPorCuenta] = useState({});
   const [pagosOrigenPorCuenta, setPagosOrigenPorCuenta] = useState({});
   const [pagosDestinoPorCuenta, setPagosDestinoPorCuenta] = useState({});
+  const [pagosPrestamosPorCuenta, setPagosPrestamosPorCuenta] = useState({});
   const [cashbackPorCuenta, setCashbackPorCuenta] = useState({});
   const [cashbackModal, setCashbackModal] = useState(null);
   const [cashbackForm, setCashbackForm] = useState({ monto: "", fecha: new Date().toISOString().split("T")[0], notas: "" });
@@ -430,6 +431,18 @@ export default function Cuentas() {
     });
     setPagosOrigenPorCuenta(pagosOrigen);
     setPagosDestinoPorCuenta(pagosDestino);
+
+    // Pagos a préstamos (descuentan del balance de la cuenta origen)
+    const { data: pagosPrestamo } = await supabase
+      .from("pagos_prestamo")
+      .select("cuenta_id, monto_total")
+      .eq("perfil_id", perfil.id);
+
+    const pagosPresta = {};
+    (pagosPrestamo || []).forEach((p) => {
+      pagosPresta[p.cuenta_id] = (pagosPresta[p.cuenta_id] || 0) + Number(p.monto_total);
+    });
+    setPagosPrestamosPorCuenta(pagosPresta);
 
     // Cashback por tarjeta de crédito
     const creditoIdsAll = cuentasData.filter((c) => c.tipo === "credito").map((c) => c.id);
@@ -707,8 +720,9 @@ ALTER TABLE cuentas ADD CONSTRAINT cuentas_tipo_check
             const pagosSalientes = pagosOrigenPorCuenta[c.id] || 0;
             const pagosRecibidos = pagosDestinoPorCuenta[c.id] || 0;
             const cashbackTotal = cashbackPorCuenta[c.id] || 0;
+            const pagosPrestamo = pagosPrestamosPorCuenta[c.id] || 0;
             const valorReal = (c.tipo === "debito" || c.tipo === "efectivo")
-              ? Number(c.balance_inicial) + movs.ingresos - movs.gastos - pagosSalientes
+              ? Number(c.balance_inicial) + movs.ingresos - movs.gastos - pagosSalientes - pagosPrestamo
               : valor;
             const balanceCreditoCalculado = Math.max(0, movs.gastos - movs.ingresos - pagosRecibidos - cashbackTotal);
             const esBalanceManual = c.balance_manual !== null && c.balance_manual !== undefined;

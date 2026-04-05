@@ -169,6 +169,28 @@ CREATE POLICY "cashback_tarjeta: solo el propio perfil"
   USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
   WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
 
+-- 9. TABLA: pagos_prestamo
+-- Registra pagos a préstamos con separación de capital e interés
+CREATE TABLE IF NOT EXISTS pagos_prestamo (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  perfil_id   UUID NOT NULL REFERENCES perfiles(id) ON DELETE CASCADE,
+  prestamo_id UUID NOT NULL REFERENCES prestamos(id) ON DELETE CASCADE,
+  cuenta_id   UUID NOT NULL REFERENCES cuentas(id) ON DELETE CASCADE,
+  capital     NUMERIC(14,2) NOT NULL DEFAULT 0,
+  interes     NUMERIC(14,2) NOT NULL DEFAULT 0,
+  monto_total NUMERIC(14,2) NOT NULL,
+  fecha       DATE NOT NULL,
+  notas       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE pagos_prestamo ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "pagos_prestamo: solo el propio perfil"
+  ON pagos_prestamo FOR ALL
+  USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
+  WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
+
 -- =====================================================
 -- MIGRACIÓN: Agregar balance_manual a cuentas (para tarjetas de crédito)
 -- Ejecuta esto si ya tienes la tabla creada:

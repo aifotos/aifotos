@@ -3,6 +3,14 @@ import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { Plus, X, Loader2, Trash2, Pencil } from "lucide-react";
 
+const EMPTY_PAGO_FORM = {
+  cuenta_id: "",
+  capital: "",
+  interes: "",
+  fecha: new Date().toISOString().split("T")[0],
+  notas: "",
+};
+
 const fmt = (n) =>
   Number(n).toLocaleString("es-DO", {
     style: "currency",
@@ -39,13 +47,26 @@ export default function Prestamos() {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  const [montoPago, setMontoPago] = useState("");
+  const [pagoForm, setPagoForm] = useState(EMPTY_PAGO_FORM);
+  const [cuentas, setCuentas] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
 
   useEffect(() => {
-    if (perfil?.id) fetchPrestamos();
+    if (perfil?.id) {
+      fetchPrestamos();
+      fetchCuentas();
+    }
   }, [perfil?.id]);
+
+  async function fetchCuentas() {
+    const { data } = await supabase
+      .from("cuentas")
+      .select("id, nombre, tipo")
+      .eq("perfil_id", perfil.id)
+      .order("created_at", { ascending: true });
+    setCuentas(data || []);
+  }
 
   async function fetchPrestamos() {
     setLoading(true);
@@ -158,23 +179,37 @@ export default function Prestamos() {
   // ── Payment ─────────────────────────────────────────────────────────────────
   async function handlePago(e) {
     e.preventDefault();
-    if (!montoPago || !pagoModal) return;
+    if (!pagoModal || !pagoForm.capital || !pagoForm.cuenta_id) return;
     setSaving(true);
 
-    const nuevoRestante = Math.max(
-      0,
-      pagoModal.monto_restante - parseFloat(montoPago)
-    );
-    const { error } = await supabase
+    const capital = parseFloat(pagoForm.capital) || 0;
+    const interes = parseFloat(pagoForm.interes) || 0;
+    const totalPago = capital + interes;
+
+    // 1. Reducir saldo del préstamo solo por capital
+    const nuevoRestante = Math.max(0, Number(pagoModal.monto_restante) - capital);
+    const { error: errPrestamo } = await supabase
       .from("prestamos")
       .update({ monto_restante: nuevoRestante })
       .eq("id", pagoModal.id);
 
-    if (!error) {
-      setPagoModal(null);
-      setMontoPago("");
-      fetchPrestamos();
-    }
+    if (errPrestamo) { setSaving(false); return; }
+
+    // 2. Registrar el pago en tabla pagos_prestamo (descuenta de la cuenta origen)
+    await supabase.from("pagos_prestamo").insert({
+      perfil_id: perfil.id,
+      prestamo_id: pagoModal.id,
+      cuenta_id: pagoForm.cuenta_id,
+      capital,
+      interes,
+      monto_total: totalPago,
+      fecha: pagoForm.fecha,
+      notas: pagoForm.notas?.trim() || null,
+    });
+
+    setPagoModal(null);
+    setPagoForm(EMPTY_PAGO_FORM);
+    fetchPrestamos();
     setSaving(false);
   }
 
@@ -384,7 +419,11 @@ USING (
                   <button
                     onClick={() => {
                       setPagoModal(p);
-                      setMontoPago(String(p.cuota_mensual));
+                      setPagoForm({
+                        ...EMPTY_PAGO_FORM,
+                        capital: String(p.cuota_mensual),
+                        fecha: new Date().toISOString().split("T")[0],
+                      });
                     }}
                     className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-sm font-medium py-2 rounded-lg transition-colors"
                   >
@@ -487,41 +526,111 @@ USING (
       {/* ── Modal registrar pago ──────────────────────────────────────────────── */}
       {pagoModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setPagoModal(null)} />
+          <div className="absolute inset-0 bg-black/60" onClick={() => { setPagoModal(null); setPagoForm(EMPTY_PAGO_FORM); }} />
           <div className="relative bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-sm p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">Registrar pago</h2>
-              <button onClick={() => setPagoModal(null)} className="text-gray-500 hover:text-white transition-colors">
+              <button onClick={() => { setPagoModal(null); setPagoForm(EMPTY_PAGO_FORM); }} className="text-gray-500 hover:text-white transition-colors">
                 <X size={20} />
               </button>
             </div>
-            <div className="bg-gray-800 rounded-lg p-3">
+
+            {/* Info préstamo */}
+            <div className="bg-gray-800 rounded-lg p-3 space-y-1">
               <p className="text-white font-medium">{pagoModal.nombre}</p>
-              <p className="text-gray-400 text-sm">
-                Saldo restante: {fmt(pagoModal.monto_restante)}
-              </p>
+              <p className="text-gray-400 text-sm">Saldo restante: {fmt(pagoModal.monto_restante)}</p>
+              <p className="text-gray-500 text-xs">Cuota sugerida: {fmt(pagoModal.cuota_mensual)}</p>
             </div>
+
             <form onSubmit={handlePago} className="space-y-4">
+              {/* Cuenta origen */}
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1.5">
-                  Monto del pago (RD$)
+                  Cuenta de donde sale el pago
+                </label>
+                <select
+                  required
+                  value={pagoForm.cuenta_id}
+                  onChange={(e) => setPagoForm({ ...pagoForm, cuenta_id: e.target.value })}
+                  className={INPUT_CLS}
+                >
+                  <option value="">Seleccionar cuenta...</option>
+                  {cuentas.filter(c => c.tipo !== "credito").map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Capital */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Capital (RD$) — reduce el saldo del préstamo
                 </label>
                 <input
                   type="number"
                   required
                   min="0"
                   step="0.01"
-                  value={montoPago}
-                  onChange={(e) => setMontoPago(e.target.value)}
+                  value={pagoForm.capital}
+                  onChange={(e) => setPagoForm({ ...pagoForm, capital: e.target.value })}
+                  placeholder="0.00"
                   className={INPUT_CLS}
                 />
-                <p className="text-gray-600 text-xs mt-1">
-                  Cuota sugerida: {fmt(pagoModal.cuota_mensual)}
-                </p>
               </div>
+
+              {/* Interés */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Interés (RD$) — gasto financiero, no reduce el saldo
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={pagoForm.interes}
+                  onChange={(e) => setPagoForm({ ...pagoForm, interes: e.target.value })}
+                  placeholder="0.00"
+                  className={INPUT_CLS}
+                />
+              </div>
+
+              {/* Total calculado */}
+              {(pagoForm.capital || pagoForm.interes) && (
+                <div className="bg-gray-800 rounded-lg px-3 py-2 flex justify-between text-sm">
+                  <span className="text-gray-400">Total a descontar de la cuenta:</span>
+                  <span className="text-white font-semibold">
+                    {fmt((parseFloat(pagoForm.capital) || 0) + (parseFloat(pagoForm.interes) || 0))}
+                  </span>
+                </div>
+              )}
+
+              {/* Fecha */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">Fecha</label>
+                <input
+                  type="date"
+                  required
+                  value={pagoForm.fecha}
+                  onChange={(e) => setPagoForm({ ...pagoForm, fecha: e.target.value })}
+                  className={INPUT_CLS}
+                />
+              </div>
+
+              {/* Notas */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">Notas (opcional)</label>
+                <input
+                  type="text"
+                  value={pagoForm.notas}
+                  onChange={(e) => setPagoForm({ ...pagoForm, notas: e.target.value })}
+                  placeholder="Ej: Cuota 12"
+                  className={INPUT_CLS}
+                />
+              </div>
+
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || !pagoForm.capital || !pagoForm.cuenta_id}
                 className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors"
               >
                 {saving && <Loader2 size={16} className="animate-spin" />}
