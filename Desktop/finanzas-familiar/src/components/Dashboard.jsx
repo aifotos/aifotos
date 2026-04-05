@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [presupuestos, setPresupuestos] = useState([])
   const [categoriasConPago, setCategoriasConPago] = useState(new Set())
   const [prestamosPagados, setPrestamosPagados] = useState(new Set())
+  const [todasTx, setTodasTx] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function Dashboard() {
     const [
       { data: txMes },
       { data: cuentasData },
-      { data: todasTx },
+      { data: todasTxFetched },
       { data: txMesCuenta },
       { data: ultimas },
       { data: prestamosData },
@@ -124,8 +125,10 @@ export default function Dashboard() {
     const ingresos = ingresosTransacciones + balanceDebito
     setResumen({ ingresos, gastos })
 
+    setTodasTx(todasTxFetched || [])
+
     const movimientosPorCuenta = {}
-    ;(todasTx || []).forEach((t) => {
+    ;(todasTxFetched || []).forEach((t) => {
       const id = t.cuenta_id
       if (!movimientosPorCuenta[id]) movimientosPorCuenta[id] = { ingresos: 0, gastos: 0 }
       const tipo = t.categorias?.tipo
