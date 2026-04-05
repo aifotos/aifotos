@@ -51,7 +51,6 @@ export default function Prestamos() {
   const [cuentas, setCuentas] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
-  const [csvUploadId, setCsvUploadId] = useState(null);
   const [amortizacionCount, setAmortizacionCount] = useState({});
 
   useEffect(() => {
@@ -228,21 +227,37 @@ export default function Prestamos() {
   // ── Open payment modal (fetches amortization table if available) ─────────────
   async function openPagoModal(p) {
     setSaving(true);
-    // Count existing payments for this loan
-    const { count } = await supabase
-      .from("pagos_prestamo")
-      .select("id", { count: "exact", head: true })
-      .eq("prestamo_id", p.id);
 
-    const nextCuota = (count || 0) + 1;
+    let cuotaData = null;
 
-    // Try to find exact cuota in amortization table
-    const { data: cuotaData } = await supabase
-      .from("amortizacion_prestamo")
-      .select("capital, interes, fecha, valor_cuota")
-      .eq("prestamo_id", p.id)
-      .eq("num_cuota", nextCuota)
-      .maybeSingle();
+    // If amortization table exists, find the cuota closest to today by date
+    if (amortizacionCount[p.id]) {
+      const today = new Date().toISOString().split("T")[0];
+
+      // First try: next upcoming payment (fecha >= today)
+      const { data: upcoming } = await supabase
+        .from("amortizacion_prestamo")
+        .select("num_cuota, capital, interes, fecha, valor_cuota")
+        .eq("prestamo_id", p.id)
+        .gte("fecha", today)
+        .order("fecha", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (upcoming) {
+        cuotaData = upcoming;
+      } else {
+        // Fallback: all dates passed — use the last cuota
+        const { data: last } = await supabase
+          .from("amortizacion_prestamo")
+          .select("num_cuota, capital, interes, fecha, valor_cuota")
+          .eq("prestamo_id", p.id)
+          .order("fecha", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        cuotaData = last;
+      }
+    }
 
     let capitalVal, interesVal, fromTable = false;
     if (cuotaData) {
@@ -257,7 +272,7 @@ export default function Prestamos() {
       interesVal = i.toFixed(2);
     }
 
-    setPagoModal({ ...p, _nextCuota: nextCuota, _fromTable: fromTable });
+    setPagoModal({ ...p, _nextCuota: cuotaData?.num_cuota ?? null, _fromTable: fromTable });
     setPagoForm({
       ...EMPTY_PAGO_FORM,
       capital: capitalVal,
@@ -270,13 +285,11 @@ export default function Prestamos() {
   // ── CSV upload for amortization table ────────────────────────────────────────
   async function handleCSVUpload(file, prestamo) {
     if (!file) return;
-    setCsvUploadId(prestamo.id);
 
     const text = await file.text();
     const lines = text.trim().split("\n").filter((l) => l.trim());
     if (lines.length < 2) {
       alert("El archivo está vacío o no tiene datos.");
-      setCsvUploadId(null);
       return;
     }
 
@@ -306,7 +319,6 @@ export default function Prestamos() {
 
     if (rows.length === 0) {
       alert("No se encontraron filas válidas.\n\nEl CSV debe tener columnas:\nnum_cuota, fecha, valor_cuota, capital, interes, saldo_capital");
-      setCsvUploadId(null);
       return;
     }
 
@@ -573,10 +585,10 @@ USING (
                           </label>
                           <a
                             href="/bhd_amortizacion.csv"
-                            download="bhd_amortizacion.csv"
+                            download="plantilla_amortizacion.csv"
                             className="text-xs text-emerald-500 hover:text-emerald-400 underline"
                           >
-                            Descargar plantilla BHD
+                            Descargar plantilla
                           </a>
                         </div>
                       </div>
