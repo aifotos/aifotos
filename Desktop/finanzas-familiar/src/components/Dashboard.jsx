@@ -66,7 +66,7 @@ export default function Dashboard() {
         .order('created_at', { ascending: true }),
       supabase
         .from('transacciones')
-        .select('cuenta_id, monto, categorias(tipo)')
+        .select('cuenta_id, monto, fecha, categorias(tipo)')
         .eq('perfil_id', perfil.id),
       supabase
         .from('transacciones')
@@ -248,6 +248,7 @@ export default function Dashboard() {
       {/* Liquidez por quincena */}
       <QuincenaLiquidez
         cuentas={cuentas}
+        todasTx={todasTx}
         prestamos={prestamos}
         presupuestos={presupuestos}
         categoriasConPago={categoriasConPago}
@@ -314,7 +315,7 @@ export default function Dashboard() {
 
 // ─── Quincena Liquidez Section ───────────────────────────────────────────────
 
-function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago, prestamosPagados, fmt }) {
+function QuincenaLiquidez({ cuentas, todasTx, prestamos, presupuestos, categoriasConPago, prestamosPagados, fmt }) {
   const now = new Date()
   const dayOfMonth = now.getDate()
   const currentQ = dayOfMonth <= 15 ? 1 : 2
@@ -324,10 +325,48 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
     .filter(c => c.tipo === 'debito' || c.tipo === 'efectivo')
     .reduce((s, c) => s + c.balanceReal, 0)
 
-  // Credit cards grouped by quincena of their dia_pago
-  const tarjetasQ1 = cuentas.filter(c => c.tipo === 'credito' && c.dia_pago >= 1 && c.dia_pago <= 15)
-  const tarjetasQ2 = cuentas.filter(c => c.tipo === 'credito' && c.dia_pago >= 16 && c.dia_pago <= 31)
-  const tarjetasSinFecha = cuentas.filter(c => c.tipo === 'credito' && !c.dia_pago)
+  // For each credit card, calculate the balance of the CLOSED billing cycle only.
+  // Closed cycle = transactions between the previous cut date and the last cut date.
+  // Those are what the user must pay on the upcoming dia_pago.
+  function montoVencidoTarjeta(cuenta) {
+    if (!cuenta.dia_corte) return null // no corte configured → unknown
+    const corte = cuenta.dia_corte
+
+    // Last cut date (most recent past corte)
+    let lastCorte = new Date(now.getFullYear(), now.getMonth(), corte)
+    if (lastCorte > now) {
+      // corte hasn't happened yet this month → last corte was previous month
+      lastCorte = new Date(now.getFullYear(), now.getMonth() - 1, corte)
+    }
+
+    // Previous cut date (the one before lastCorte)
+    const prevCorte = new Date(lastCorte.getFullYear(), lastCorte.getMonth() - 1, corte)
+
+    const lastCorteStr = lastCorte.toISOString().split('T')[0]
+    const prevCorteStr = prevCorte.toISOString().split('T')[0]
+
+    // Sum gastos for this card in the closed cycle (prevCorte < fecha <= lastCorte)
+    const total = (todasTx || [])
+      .filter(t =>
+        t.cuenta_id === cuenta.id &&
+        t.categorias?.tipo === 'gasto' &&
+        t.fecha > prevCorteStr &&
+        t.fecha <= lastCorteStr
+      )
+      .reduce((s, t) => s + Number(t.monto), 0)
+
+    return total
+  }
+
+  // Enrich credit cards with their closed-cycle balance
+  const tarjetasCredito = cuentas
+    .filter(c => c.tipo === 'credito')
+    .map(c => ({ ...c, montoVencido: montoVencidoTarjeta(c) }))
+
+  // Only show cards where we know the amount AND it's > 0, or dia_corte not set
+  const tarjetasQ1 = tarjetasCredito.filter(c => c.dia_pago >= 1 && c.dia_pago <= 15 && (c.montoVencido === null || c.montoVencido > 0))
+  const tarjetasQ2 = tarjetasCredito.filter(c => c.dia_pago >= 16 && c.dia_pago <= 31 && (c.montoVencido === null || c.montoVencido > 0))
+  const tarjetasSinFecha = tarjetasCredito.filter(c => !c.dia_pago && (c.montoVencido === null || c.montoVencido > 0))
 
   // Loans grouped by quincena of their dia_pago
   const prestamosQ1 = prestamos.filter(p => p.dia_pago >= 1 && p.dia_pago <= 15)
@@ -339,19 +378,24 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
   const presupuestosQ2 = presupuestos.filter(p => p.dia_pago >= 16 && p.dia_pago <= 31)
   const presupuestosSinFecha = presupuestos.filter(p => !p.dia_pago)
 
+  // Helper: amount to show for a card (null = sin corte → use gastadoMes as fallback)
+  function tarjetaMonto(c) {
+    return c.montoVencido !== null ? c.montoVencido : (c.gastadoMes || 0)
+  }
+
   // Totals per quincena
   const totalQ1 =
-    tarjetasQ1.reduce((s, c) => s + (c.gastadoMes || 0), 0) +
+    tarjetasQ1.reduce((s, c) => s + tarjetaMonto(c), 0) +
     prestamosQ1.reduce((s, p) => s + Number(p.cuota_mensual), 0) +
     presupuestosQ1.reduce((s, p) => s + Number(p.monto_limite), 0)
 
   const totalQ2 =
-    tarjetasQ2.reduce((s, c) => s + (c.gastadoMes || 0), 0) +
+    tarjetasQ2.reduce((s, c) => s + tarjetaMonto(c), 0) +
     prestamosQ2.reduce((s, p) => s + Number(p.cuota_mensual), 0) +
     presupuestosQ2.reduce((s, p) => s + Number(p.monto_limite), 0)
 
   const totalSinFecha =
-    tarjetasSinFecha.reduce((s, c) => s + (c.gastadoMes || 0), 0) +
+    tarjetasSinFecha.reduce((s, c) => s + tarjetaMonto(c), 0) +
     prestamosSinFecha.reduce((s, p) => s + Number(p.cuota_mensual), 0) +
     presupuestosSinFecha.reduce((s, p) => s + Number(p.monto_limite), 0)
 
@@ -451,12 +495,15 @@ function QuincenaLiquidez({ cuentas, prestamos, presupuestos, categoriasConPago,
                 </div>
               )
             })}
-            {tarjetasSinFecha.map(c => (
-              <div key={c.id} className="flex items-center justify-between text-sm">
-                <span className="text-gray-300">💳 {c.nombre}</span>
-                <span className="text-amber-400 font-medium tabular-nums">{fmt(c.gastadoMes || 0)}</span>
-              </div>
-            ))}
+            {tarjetasSinFecha.map(c => {
+              const monto = c.montoVencido !== null ? c.montoVencido : (c.gastadoMes || 0)
+              return (
+                <div key={c.id} className="flex items-center justify-between text-sm">
+                  <span className="text-gray-300">💳 {c.nombre}</span>
+                  <span className="text-amber-400 font-medium tabular-nums">{fmt(monto)}</span>
+                </div>
+              )
+            })}
             {presupuestosSinFecha.map(p => {
               const pagado = categoriasConPago?.has(p.categoria_id)
               return (
@@ -531,16 +578,21 @@ function QuincenaCard({ label, range, isCurrent, tarjetas, prestamosItems, presu
               </div>
             )
           })}
-          {tarjetas.map(c => (
-            <div key={c.id} className="flex items-center justify-between text-xs">
-              <span className="text-gray-400 flex items-center gap-1.5">
-                <span className="text-gray-600">💳</span>
-                {c.nombre}
-                <span className="text-gray-600">· pago día {c.dia_pago}</span>
-              </span>
-              <span className="text-white font-medium tabular-nums">{fmt(c.gastadoMes || 0)}</span>
-            </div>
-          ))}
+          {tarjetas.map(c => {
+            const monto = c.montoVencido !== null ? c.montoVencido : (c.gastadoMes || 0)
+            const sinCorte = c.montoVencido === null
+            return (
+              <div key={c.id} className="flex items-center justify-between text-xs">
+                <span className="text-gray-400 flex items-center gap-1.5">
+                  <span className="text-gray-600">💳</span>
+                  {c.nombre}
+                  <span className="text-gray-600">· pago día {c.dia_pago}</span>
+                  {sinCorte && <span className="text-amber-600/70">· sin corte</span>}
+                </span>
+                <span className="text-white font-medium tabular-nums">{fmt(monto)}</span>
+              </div>
+            )
+          })}
           {presupuestosItems.map(p => {
             const pagado = categoriasConPago?.has(p.categoria_id)
             return (
