@@ -29,6 +29,7 @@ export default function Transacciones() {
   const { perfil } = useAuth();
   const [transacciones, setTransacciones] = useState([]);
   const [pagos, setPagos] = useState([]);
+  const [pagosPrestamo, setPagosPrestamo] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [cuentas, setCuentas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +57,7 @@ export default function Transacciones() {
 
   async function fetchAll() {
     setLoading(true);
-    const [txRes, catRes, cuentaRes, pagosRes] = await Promise.all([
+    const [txRes, catRes, cuentaRes, pagosRes, prestamosRes] = await Promise.all([
       supabase
         .from("transacciones")
         .select(
@@ -83,11 +84,20 @@ export default function Transacciones() {
         .eq("perfil_id", perfil.id)
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false }),
+      supabase
+        .from("pagos_prestamo")
+        .select(
+          "id, capital, interes, monto_total, fecha, notas, created_at, prestamo_id, cuenta_id, prestamos(nombre), cuentas(nombre)"
+        )
+        .eq("perfil_id", perfil.id)
+        .order("fecha", { ascending: false })
+        .order("created_at", { ascending: false }),
     ]);
     setTransacciones(txRes.data || []);
     setCategorias(catRes.data || []);
     setCuentas(cuentaRes.data || []);
     setPagos(pagosRes.data || []);
+    setPagosPrestamo(prestamosRes.data || []);
     setLoading(false);
   }
 
@@ -167,6 +177,27 @@ export default function Transacciones() {
   }
 
   async function handleDelete(id, tipo) {
+    if (tipo === "pago_prestamo") {
+      // Recuperar el pago para revertir el capital al préstamo
+      const pago = pagosPrestamo.find((p) => p.id === id);
+      if (pago) {
+        // Obtener saldo actual del préstamo
+        const { data: prestamo } = await supabase
+          .from("prestamos")
+          .select("monto_restante")
+          .eq("id", pago.prestamo_id)
+          .single();
+        if (prestamo) {
+          await supabase
+            .from("prestamos")
+            .update({ monto_restante: Number(prestamo.monto_restante) + Number(pago.capital) })
+            .eq("id", pago.prestamo_id);
+        }
+      }
+      await supabase.from("pagos_prestamo").delete().eq("id", id);
+      setPagosPrestamo((prev) => prev.filter((p) => p.id !== id));
+      return;
+    }
     const tabla = tipo === "pago_tarjeta" ? "pagos_tarjeta" : "transacciones";
     const { error } = await supabase.from(tabla).delete().eq("id", id);
     if (!error) {
@@ -210,10 +241,11 @@ export default function Transacciones() {
     setSeeding(false);
   }
 
-  // Combinar transacciones y pagos a tarjeta ordenados por fecha
+  // Combinar transacciones, pagos a tarjeta y pagos a préstamo ordenados por fecha
   const allItems = [
     ...transacciones.map((t) => ({ ...t, _tipo: "transaccion" })),
     ...pagos.map((p) => ({ ...p, _tipo: "pago_tarjeta" })),
+    ...pagosPrestamo.map((p) => ({ ...p, _tipo: "pago_prestamo" })),
   ].sort((a, b) => {
     if (b.fecha !== a.fecha) return b.fecha.localeCompare(a.fecha);
     return new Date(b.created_at) - new Date(a.created_at);
@@ -267,6 +299,45 @@ export default function Transacciones() {
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {allItems.map((item) => {
+                  if (item._tipo === "pago_prestamo") {
+                    return (
+                      <tr
+                        key={`pp-${item.id}`}
+                        className="hover:bg-gray-800/50 transition-colors"
+                      >
+                        <td className="px-5 py-3 text-gray-400 whitespace-nowrap">
+                          {fmtFecha(item.fecha)}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className="flex items-center gap-2">
+                            <span>🏦</span>
+                            <span className="text-amber-400">Pago préstamo</span>
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-gray-400">
+                          {item.cuentas?.nombre} → {item.prestamos?.nombre}
+                        </td>
+                        <td className="px-5 py-3 text-gray-500 max-w-[200px] truncate">
+                          {item.notas || `Cap. ${fmt(item.capital)} · Int. ${fmt(item.interes)}`}
+                        </td>
+                        <td className="px-5 py-3 text-right whitespace-nowrap">
+                          <span className="font-semibold tabular-nums text-amber-400">
+                            {fmt(item.monto_total)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <button
+                            onClick={() => handleDelete(item.id, "pago_prestamo")}
+                            className="text-gray-600 hover:text-red-400 transition-colors"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+
                   if (item._tipo === "pago_tarjeta") {
                     return (
                       <tr
@@ -364,6 +435,38 @@ export default function Transacciones() {
           {/* Mobile */}
           <div className="sm:hidden space-y-2">
             {allItems.map((item) => {
+              if (item._tipo === "pago_prestamo") {
+                return (
+                  <div
+                    key={`pp-${item.id}`}
+                    className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-xl flex-shrink-0">🏦</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-amber-400 truncate">
+                          Pago préstamo · {item.prestamos?.nombre}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {fmtFecha(item.fecha)} · {item.cuentas?.nombre} · Cap. {fmt(item.capital)} / Int. {fmt(item.interes)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      <span className="text-sm font-semibold tabular-nums text-amber-400">
+                        {fmt(item.monto_total)}
+                      </span>
+                      <button
+                        onClick={() => handleDelete(item.id, "pago_prestamo")}
+                        className="text-gray-600 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
               if (item._tipo === "pago_tarjeta") {
                 return (
                   <div
