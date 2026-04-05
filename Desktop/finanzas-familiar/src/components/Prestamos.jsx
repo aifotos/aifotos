@@ -418,10 +418,14 @@ USING (
                 {!terminado && (
                   <button
                     onClick={() => {
+                      const tasaMensual = Number(p.tasa_interes) / 12 / 100;
+                      const interes = Number(p.monto_restante) * tasaMensual;
+                      const capital = Math.max(0, Number(p.cuota_mensual) - interes);
                       setPagoModal(p);
                       setPagoForm({
                         ...EMPTY_PAGO_FORM,
-                        capital: String(p.cuota_mensual),
+                        capital: capital.toFixed(2),
+                        interes: interes.toFixed(2),
                         fecha: new Date().toISOString().split("T")[0],
                       });
                     }}
@@ -561,38 +565,45 @@ USING (
                 </select>
               </div>
 
-              {/* Capital */}
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">
-                  Capital (RD$) — reduce el saldo del préstamo
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={pagoForm.capital}
-                  onChange={(e) => setPagoForm({ ...pagoForm, capital: e.target.value })}
-                  placeholder="0.00"
-                  className={INPUT_CLS}
-                />
+              {/* Capital e Interés */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                    Capital (RD$)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    value={pagoForm.capital}
+                    onChange={(e) => setPagoForm({ ...pagoForm, capital: e.target.value })}
+                    placeholder="0.00"
+                    className={INPUT_CLS}
+                  />
+                  <p className="text-gray-600 text-xs mt-1">Reduce el saldo</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                    Interés (RD$)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={pagoForm.interes}
+                    onChange={(e) => setPagoForm({ ...pagoForm, interes: e.target.value })}
+                    placeholder="0.00"
+                    className={INPUT_CLS}
+                  />
+                  <p className="text-gray-600 text-xs mt-1">Gasto financiero</p>
+                </div>
               </div>
-
-              {/* Interés */}
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">
-                  Interés (RD$) — gasto financiero, no reduce el saldo
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={pagoForm.interes}
-                  onChange={(e) => setPagoForm({ ...pagoForm, interes: e.target.value })}
-                  placeholder="0.00"
-                  className={INPUT_CLS}
-                />
-              </div>
+              {pagoModal && Number(pagoModal.tasa_interes) > 0 && (
+                <p className="text-gray-600 text-xs -mt-2">
+                  Calculado automáticamente. Puedes ajustar si tu banco indica otro valor.
+                </p>
+              )}
 
               {/* Total calculado */}
               {(pagoForm.capital || pagoForm.interes) && (
