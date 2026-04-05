@@ -154,8 +154,8 @@ export default function Dashboard() {
     Number(n).toLocaleString('es-DO', {
       style: 'currency',
       currency: 'DOP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     })
 
   if (loading) {

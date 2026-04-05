@@ -191,6 +191,29 @@ CREATE POLICY "pagos_prestamo: solo el propio perfil"
   USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
   WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
 
+-- 10. TABLA: amortizacion_prestamo
+-- Tabla de amortización real subida por el usuario (CSV/Excel del banco)
+CREATE TABLE IF NOT EXISTS amortizacion_prestamo (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  perfil_id     UUID NOT NULL REFERENCES perfiles(id) ON DELETE CASCADE,
+  prestamo_id   UUID NOT NULL REFERENCES prestamos(id) ON DELETE CASCADE,
+  num_cuota     INT NOT NULL,
+  fecha         DATE,
+  valor_cuota   NUMERIC(14,2),
+  capital       NUMERIC(14,2) NOT NULL,
+  interes       NUMERIC(14,2) NOT NULL,
+  saldo_capital NUMERIC(14,2),
+  created_at    TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (prestamo_id, num_cuota)
+);
+
+ALTER TABLE amortizacion_prestamo ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "amortizacion_prestamo: solo el propio perfil"
+  ON amortizacion_prestamo FOR ALL
+  USING (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()))
+  WITH CHECK (perfil_id IN (SELECT id FROM perfiles WHERE user_id = auth.uid()));
+
 -- =====================================================
 -- MIGRACIÓN: Agregar balance_manual a cuentas (para tarjetas de crédito)
 -- Ejecuta esto si ya tienes la tabla creada:

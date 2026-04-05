@@ -51,6 +51,8 @@ export default function Prestamos() {
   const [cuentas, setCuentas] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [csvUploadId, setCsvUploadId] = useState(null);
+  const [amortizacionCount, setAmortizacionCount] = useState({});
 
   useEffect(() => {
     if (perfil?.id) {
@@ -81,6 +83,16 @@ export default function Prestamos() {
     } else {
       setPrestamos(data || []);
       setDbError(null);
+      // Fetch amortization row counts per loan
+      const { data: amoCounts } = await supabase
+        .from("amortizacion_prestamo")
+        .select("prestamo_id")
+        .eq("perfil_id", perfil.id);
+      const countMap = {};
+      (amoCounts || []).forEach((r) => {
+        countMap[r.prestamo_id] = (countMap[r.prestamo_id] || 0) + 1;
+      });
+      setAmortizacionCount(countMap);
     }
     setLoading(false);
   }
@@ -211,6 +223,103 @@ export default function Prestamos() {
     setPagoForm(EMPTY_PAGO_FORM);
     fetchPrestamos();
     setSaving(false);
+  }
+
+  // ── Open payment modal (fetches amortization table if available) ─────────────
+  async function openPagoModal(p) {
+    setSaving(true);
+    // Count existing payments for this loan
+    const { count } = await supabase
+      .from("pagos_prestamo")
+      .select("id", { count: "exact", head: true })
+      .eq("prestamo_id", p.id);
+
+    const nextCuota = (count || 0) + 1;
+
+    // Try to find exact cuota in amortization table
+    const { data: cuotaData } = await supabase
+      .from("amortizacion_prestamo")
+      .select("capital, interes, fecha, valor_cuota")
+      .eq("prestamo_id", p.id)
+      .eq("num_cuota", nextCuota)
+      .maybeSingle();
+
+    let capitalVal, interesVal, fromTable = false;
+    if (cuotaData) {
+      capitalVal = Number(cuotaData.capital).toFixed(2);
+      interesVal = Number(cuotaData.interes).toFixed(2);
+      fromTable = true;
+    } else {
+      const tasaMensual = Number(p.tasa_interes) / 12 / 100;
+      const i = Number(p.monto_restante) * tasaMensual;
+      const c = Math.max(0, Number(p.cuota_mensual) - i);
+      capitalVal = c.toFixed(2);
+      interesVal = i.toFixed(2);
+    }
+
+    setPagoModal({ ...p, _nextCuota: nextCuota, _fromTable: fromTable });
+    setPagoForm({
+      ...EMPTY_PAGO_FORM,
+      capital: capitalVal,
+      interes: interesVal,
+      fecha: cuotaData?.fecha || new Date().toISOString().split("T")[0],
+    });
+    setSaving(false);
+  }
+
+  // ── CSV upload for amortization table ────────────────────────────────────────
+  async function handleCSVUpload(file, prestamo) {
+    if (!file) return;
+    setCsvUploadId(prestamo.id);
+
+    const text = await file.text();
+    const lines = text.trim().split("\n").filter((l) => l.trim());
+    if (lines.length < 2) {
+      alert("El archivo está vacío o no tiene datos.");
+      setCsvUploadId(null);
+      return;
+    }
+
+    const headers = lines[0].split(",").map((h) =>
+      h.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z_]/g, "")
+    );
+
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(",");
+      const row = {};
+      headers.forEach((h, j) => (row[h] = vals[j]?.trim()));
+      const parsed = {
+        perfil_id: perfil.id,
+        prestamo_id: prestamo.id,
+        num_cuota: parseInt(row.num_cuota ?? row.cuota ?? row.numero ?? i),
+        fecha: row.fecha || null,
+        valor_cuota: parseFloat(row.valor_cuota) || null,
+        capital: parseFloat(row.capital),
+        interes: parseFloat(row.interes),
+        saldo_capital: parseFloat(row.saldo_capital) || null,
+      };
+      if (!isNaN(parsed.num_cuota) && !isNaN(parsed.capital) && !isNaN(parsed.interes)) {
+        rows.push(parsed);
+      }
+    }
+
+    if (rows.length === 0) {
+      alert("No se encontraron filas válidas.\n\nEl CSV debe tener columnas:\nnum_cuota, fecha, valor_cuota, capital, interes, saldo_capital");
+      setCsvUploadId(null);
+      return;
+    }
+
+    await supabase.from("amortizacion_prestamo").delete().eq("prestamo_id", prestamo.id);
+    const { error } = await supabase.from("amortizacion_prestamo").insert(rows);
+
+    if (error) {
+      alert("Error al cargar la tabla: " + error.message);
+    } else {
+      alert(`✓ ${rows.length} cuotas cargadas para "${prestamo.nombre}"`);
+      fetchPrestamos(); // refresh count
+    }
+    setCsvUploadId(null);
   }
 
   if (loading) {
@@ -414,25 +523,36 @@ USING (
                   </div>
                 </div>
 
-                {/* Botón pago */}
+                {/* Botones pago + CSV */}
                 {!terminado && (
-                  <button
-                    onClick={() => {
-                      const tasaMensual = Number(p.tasa_interes) / 12 / 100;
-                      const interes = Number(p.monto_restante) * tasaMensual;
-                      const capital = Math.max(0, Number(p.cuota_mensual) - interes);
-                      setPagoModal(p);
-                      setPagoForm({
-                        ...EMPTY_PAGO_FORM,
-                        capital: capital.toFixed(2),
-                        interes: interes.toFixed(2),
-                        fecha: new Date().toISOString().split("T")[0],
-                      });
-                    }}
-                    className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-sm font-medium py-2 rounded-lg transition-colors"
-                  >
-                    Registrar pago
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => openPagoModal(p)}
+                      disabled={saving}
+                      className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-400 text-sm font-medium py-2 rounded-lg transition-colors"
+                    >
+                      {saving ? "Cargando..." : "Registrar pago"}
+                    </button>
+                    <label
+                      title={amortizacionCount[p.id] ? `Tabla cargada: ${amortizacionCount[p.id]} cuotas` : "Subir tabla de amortización (CSV)"}
+                      className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                        amortizacionCount[p.id]
+                          ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                          : "bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300"
+                      }`}
+                    >
+                      {amortizacionCount[p.id] ? `📊 ${amortizacionCount[p.id]}c` : "📎 CSV"}
+                      <input
+                        type="file"
+                        accept=".csv"
+                        className="hidden"
+                        onChange={(e) => {
+                          handleCSVUpload(e.target.files[0], p);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
             );
@@ -541,9 +661,18 @@ USING (
 
             {/* Info préstamo */}
             <div className="bg-gray-800 rounded-lg p-3 space-y-1">
-              <p className="text-white font-medium">{pagoModal.nombre}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-white font-medium">{pagoModal.nombre}</p>
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
+                  Cuota #{pagoModal._nextCuota}
+                </span>
+              </div>
               <p className="text-gray-400 text-sm">Saldo restante: {fmt(pagoModal.monto_restante)}</p>
-              <p className="text-gray-500 text-xs">Cuota sugerida: {fmt(pagoModal.cuota_mensual)}</p>
+              {pagoModal._fromTable ? (
+                <p className="text-blue-400 text-xs">✓ Valores del banco (tabla de amortización real)</p>
+              ) : (
+                <p className="text-gray-500 text-xs">Calculado con fórmula — sube un CSV para usar valores exactos del banco</p>
+              )}
             </div>
 
             <form onSubmit={handlePago} className="space-y-4">
@@ -599,11 +728,9 @@ USING (
                   <p className="text-gray-600 text-xs mt-1">Gasto financiero</p>
                 </div>
               </div>
-              {pagoModal && Number(pagoModal.tasa_interes) > 0 && (
-                <p className="text-gray-600 text-xs -mt-2">
-                  Calculado automáticamente. Puedes ajustar si tu banco indica otro valor.
-                </p>
-              )}
+              <p className="text-gray-600 text-xs -mt-2">
+                Puedes ajustar los valores si tu banco indica otros montos.
+              </p>
 
               {/* Total calculado */}
               {(pagoForm.capital || pagoForm.interes) && (
