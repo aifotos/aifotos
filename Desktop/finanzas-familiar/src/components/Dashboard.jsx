@@ -48,6 +48,8 @@ export default function Dashboard() {
       { data: ultimas },
       { data: prestamosData },
       { data: presupuestosData },
+      { data: pagosTarjetaData },
+      { data: pagosPrestamoData },
     ] = await Promise.all([
       supabase
         .from('transacciones')
@@ -86,6 +88,14 @@ export default function Dashboard() {
         .select('id, monto_limite, dia_pago, categoria_id, categorias(nombre, icono)')
         .eq('perfil_id', perfil.id)
         .eq('mes', mesKey),
+      supabase
+        .from('pagos_tarjeta')
+        .select('cuenta_origen_id, monto')
+        .eq('perfil_id', perfil.id),
+      supabase
+        .from('pagos_prestamo')
+        .select('cuenta_id, monto_total')
+        .eq('perfil_id', perfil.id),
     ])
 
     const ahorroIds = new Set((cuentasData || []).filter(c => c.tipo === 'ahorro').map(c => c.id))
@@ -121,10 +131,22 @@ export default function Dashboard() {
       gastosMesPorCuenta[id] = (gastosMesPorCuenta[id] || 0) + Math.abs(Number(t.monto))
     })
 
+    const pagosTarjetaPorCuenta = {}
+    ;(pagosTarjetaData || []).forEach((p) => {
+      pagosTarjetaPorCuenta[p.cuenta_origen_id] = (pagosTarjetaPorCuenta[p.cuenta_origen_id] || 0) + Number(p.monto)
+    })
+
+    const pagosPrestamosPorCuenta = {}
+    ;(pagosPrestamoData || []).forEach((p) => {
+      pagosPrestamosPorCuenta[p.cuenta_id] = (pagosPrestamosPorCuenta[p.cuenta_id] || 0) + Number(p.monto_total)
+    })
+
     const cuentasConBalance = (cuentasData || []).map((c) => {
       const mov = movimientosPorCuenta[c.id] || { ingresos: 0, gastos: 0 }
       if (c.tipo === 'debito' || c.tipo === 'ahorro' || c.tipo === 'efectivo') {
-        const balanceReal = Number(c.balance_inicial) + mov.ingresos - mov.gastos
+        const pagosSalientes = pagosTarjetaPorCuenta[c.id] || 0
+        const pagosPrestamo = pagosPrestamosPorCuenta[c.id] || 0
+        const balanceReal = Number(c.balance_inicial) + mov.ingresos - mov.gastos - pagosSalientes - pagosPrestamo
         return { ...c, balanceReal }
       } else {
         const gastadoMes = gastosMesPorCuenta[c.id] || 0
