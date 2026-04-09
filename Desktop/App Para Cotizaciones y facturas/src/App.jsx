@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Download, RotateCcw, Eye, EyeOff } from 'lucide-react'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
@@ -10,22 +10,31 @@ import TablaArticulos from './components/TablaArticulos'
 import Totales from './components/Totales'
 import Previsualizacion from './components/Previsualizacion'
 import CatalogoServicios from './components/CatalogoServicios'
+import Historial from './components/Historial'
+import { useHistorial } from './hooks/useHistorial'
 
-const estadoInicial = {
-  emisor: { nombre: '', rnc: '', direccion: '', telefono: '', email: '' },
-  cliente: { nombre: '', rnc: '', direccion: '', comprobante: '', fecha: new Date().toISOString().split('T')[0] },
-  articulos: [{ descripcion: '', cantidad: '', precio: '', total: '0.00' }],
-  tasaItbis: 0,
-}
+const emisorInicial = { nombre: '', rnc: '', direccion: '', telefono: '', email: '' }
+const articulosInicial = [{ descripcion: '', cantidad: '', precio: '', total: '0.00' }]
 
 export default function App() {
   const [modo, setModo] = useState('cotizacion')
-  const [emisor, setEmisor] = useState(estadoInicial.emisor)
-  const [cliente, setCliente] = useState(estadoInicial.cliente)
-  const [articulos, setArticulos] = useState(estadoInicial.articulos)
-  const [tasaItbis, setTasaItbis] = useState(estadoInicial.tasaItbis)
+  const [emisor, setEmisor] = useState(emisorInicial)
+  const [cliente, setCliente] = useState({
+    nombre: '', rnc: '', direccion: '', comprobante: '', fecha: new Date().toISOString().split('T')[0],
+  })
+  const [articulos, setArticulos] = useState(articulosInicial)
+  const [tasaItbis, setTasaItbis] = useState(0)
   const [mostrarPreview, setMostrarPreview] = useState(true)
   const [exportando, setExportando] = useState(false)
+  const [verHistorial, setVerHistorial] = useState(false)
+
+  const { historial, generarNumero, guardarDocumento, eliminarRegistro } = useHistorial()
+
+  // Al cambiar de modo, asignar el siguiente número automáticamente
+  useEffect(() => {
+    const siguiente = generarNumero(modo)
+    setCliente((prev) => ({ ...prev, comprobante: siguiente }))
+  }, [modo, historial.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtotal = useMemo(
     () => articulos.reduce((acc, a) => acc + parseFloat(a.total || 0), 0),
@@ -35,15 +44,19 @@ export default function App() {
   const total = useMemo(() => subtotal + itbis, [subtotal, itbis])
 
   const limpiar = () => {
-    setEmisor(estadoInicial.emisor)
-    setCliente({ ...estadoInicial.cliente, fecha: new Date().toISOString().split('T')[0] })
-    setArticulos(estadoInicial.articulos)
-    setTasaItbis(estadoInicial.tasaItbis)
+    setEmisor(emisorInicial)
+    const siguiente = generarNumero(modo)
+    setCliente({
+      nombre: '', rnc: '', direccion: '',
+      comprobante: siguiente,
+      fecha: new Date().toISOString().split('T')[0],
+    })
+    setArticulos(articulosInicial)
+    setTasaItbis(0)
   }
 
-  const agregarDesdesCatalogo = (servicio) => {
+  const agregarDesdeCatalogo = (servicio) => {
     setArticulos((prev) => {
-      // Si solo hay una fila vacía, la reemplazamos
       const soloVacia = prev.length === 1 && !prev[0].descripcion && !prev[0].precio
       const nuevaFila = {
         descripcion: servicio.descripcion,
@@ -55,10 +68,17 @@ export default function App() {
     })
   }
 
+  const cargarDesdeHistorial = (registro) => {
+    setModo(registro.tipo)
+    setEmisor(registro.snapshot.emisor)
+    setCliente(registro.snapshot.cliente)
+    setArticulos(registro.snapshot.articulos)
+    setTasaItbis(registro.tasaItbis)
+  }
+
   const exportarPDF = async () => {
     setExportando(true)
     try {
-      // Capturamos el elemento oculto a tamaño real (sin transform)
       const elemento = document.getElementById('documento-pdf-capture')
       const canvas = await html2canvas(elemento, {
         scale: 2,
@@ -90,6 +110,23 @@ export default function App() {
 
       const nombre = `${modo === 'cotizacion' ? 'Cotizacion' : 'Factura'}_${cliente.comprobante || 'sin-numero'}_${cliente.nombre || 'cliente'}.pdf`
       pdf.save(nombre)
+
+      // Guardar en historial (internamente avanza el contador)
+      const { siguienteNumero } = guardarDocumento({
+        tipo: modo, numero: cliente.comprobante,
+        emisor, cliente, articulos, subtotal, itbis, total, tasaItbis,
+      })
+
+      // Limpiar formulario con el siguiente número listo
+      setEmisor(emisorInicial)
+      setCliente({
+        nombre: '', rnc: '', direccion: '',
+        comprobante: siguienteNumero,
+        fecha: new Date().toISOString().split('T')[0],
+      })
+      setArticulos(articulosInicial)
+      setTasaItbis(0)
+
     } catch (err) {
       console.error('Error al exportar PDF:', err)
     } finally {
@@ -99,7 +136,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <Header modo={modo} setModo={setModo} />
+      <Header
+        modo={modo}
+        setModo={setModo}
+        totalDocumentos={historial.length}
+        onVerHistorial={() => setVerHistorial(true)}
+      />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Barra de acciones */}
@@ -108,7 +150,10 @@ export default function App() {
             <h2 className="text-lg font-bold text-slate-800">
               Nueva {modo === 'cotizacion' ? 'Cotización' : 'Factura'}
             </h2>
-            <p className="text-sm text-slate-500">Completa los datos y exporta tu documento</p>
+            <p className="text-sm text-slate-500">
+              Próximo número:{' '}
+              <span className="font-mono font-semibold text-slate-700">{cliente.comprobante}</span>
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -146,7 +191,7 @@ export default function App() {
             <DatosEmisor emisor={emisor} setEmisor={setEmisor} />
             <DatosCliente cliente={cliente} setCliente={setCliente} modo={modo} />
             <TablaArticulos articulos={articulos} setArticulos={setArticulos} />
-            <CatalogoServicios onAgregar={agregarDesdesCatalogo} />
+            <CatalogoServicios onAgregar={agregarDesdeCatalogo} />
             <Totales
               subtotal={subtotal}
               itbis={itbis}
@@ -183,15 +228,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* Elemento oculto a tamaño real para captura PDF — NO visible, NO transformado */}
+      {/* Elemento oculto a tamaño real para captura PDF */}
       <div
-        style={{
-          position: 'fixed',
-          left: '-9999px',
-          top: 0,
-          zIndex: -1,
-          pointerEvents: 'none',
-        }}
+        style={{ position: 'fixed', left: '-9999px', top: 0, zIndex: -1, pointerEvents: 'none' }}
         aria-hidden="true"
       >
         <Previsualizacion
@@ -206,6 +245,16 @@ export default function App() {
           tasaItbis={tasaItbis}
         />
       </div>
+
+      {/* Modal historial */}
+      {verHistorial && (
+        <Historial
+          historial={historial}
+          onEliminar={eliminarRegistro}
+          onCargar={cargarDesdeHistorial}
+          onCerrar={() => setVerHistorial(false)}
+        />
+      )}
     </div>
   )
 }
