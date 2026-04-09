@@ -1,11 +1,11 @@
-export default function Previsualizacion({ modo, emisor, cliente, articulos, subtotal, itbis, total, tasaItbis }) {
+export default function Previsualizacion({ modo, emisor, cliente, articulos, subtotal, itbis, total, tasaItbis, captureId }) {
   const esCotizacion = modo === 'cotizacion'
   const color = esCotizacion ? '#2563eb' : '#059669'
   const titulo = esCotizacion ? 'COTIZACIÓN' : 'FACTURA'
 
   return (
     <div
-      id="documento-pdf"
+      id={captureId}
       style={{
         fontFamily: 'Arial, Helvetica, sans-serif',
         backgroundColor: '#ffffff',

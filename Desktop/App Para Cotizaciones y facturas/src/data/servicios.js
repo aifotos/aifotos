@@ -1,0 +1,80 @@
+export const CATALOGO_SERVICIOS = [
+  {
+    id: 1,
+    nombre: 'Redes Sociales (Paquete 1)',
+    descripcion: 'Redes Sociales (Paquete 1)',
+    precio: 25000,
+  },
+  {
+    id: 2,
+    nombre: 'Producción (Santiago)',
+    descripcion: 'Producción de video en Santiago.',
+    precio: 8000,
+  },
+  {
+    id: 3,
+    nombre: 'Producción (Santo Domingo)',
+    descripcion: 'Producción de video en Santo Domingo. Uso de equipos y personal. Edición en locación y entrega el mismo día.',
+    precio: 15000,
+  },
+  {
+    id: 4,
+    nombre: 'Uso de Equipos',
+    descripcion: 'Iluminación, cámaras y pompter.',
+    precio: 4000,
+  },
+  {
+    id: 5,
+    nombre: 'Viáticos y Transporte',
+    descripcion: 'Gastos de alimentación.',
+    precio: 3000,
+  },
+  {
+    id: 6,
+    nombre: 'Ayudante SD',
+    descripcion: 'Jornada Santo Domingo.',
+    precio: 4500,
+  },
+  {
+    id: 7,
+    nombre: 'Ayudante STGO',
+    descripcion: 'Jornada Santiago.',
+    precio: 2000,
+  },
+  {
+    id: 8,
+    nombre: 'Transporte 1',
+    descripcion: 'Jornada Santiago.',
+    precio: 2000,
+  },
+  {
+    id: 9,
+    nombre: 'Transporte 2',
+    descripcion: 'Jornada Santo Domingo.',
+    precio: 5000,
+  },
+  {
+    id: 10,
+    nombre: 'El PioRD Pack 1',
+    descripcion: 'Uso de la imagen de El PioRD.',
+    precio: 1000,
+  },
+  {
+    id: 11,
+    nombre: 'El PioRD Pack 2',
+    descripcion: 'Publicación en feed del PioRD.',
+    precio: 500,
+  },
+  {
+    id: 12,
+    nombre: 'Diseño Gráfico',
+    descripcion: 'Creación de elementos, animaciones, cintillos, etc.',
+    precio: 1000,
+  },
+  {
+    id: 13,
+    nombre: 'Producción Fija Mensual (MH)',
+    descripcion: '4 videos al mes, 4 reels al mes.',
+    precio: 36000,
+  },
+]

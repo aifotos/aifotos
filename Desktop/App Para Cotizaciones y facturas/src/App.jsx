@@ -9,12 +9,13 @@ import DatosCliente from './components/DatosCliente'
 import TablaArticulos from './components/TablaArticulos'
 import Totales from './components/Totales'
 import Previsualizacion from './components/Previsualizacion'
+import CatalogoServicios from './components/CatalogoServicios'
 
 const estadoInicial = {
   emisor: { nombre: '', rnc: '', direccion: '', telefono: '', email: '' },
   cliente: { nombre: '', rnc: '', direccion: '', comprobante: '', fecha: new Date().toISOString().split('T')[0] },
   articulos: [{ descripcion: '', cantidad: '', precio: '', total: '0.00' }],
-  tasaItbis: 18,
+  tasaItbis: 0,
 }
 
 export default function App() {
@@ -40,32 +41,51 @@ export default function App() {
     setTasaItbis(estadoInicial.tasaItbis)
   }
 
+  const agregarDesdesCatalogo = (servicio) => {
+    setArticulos((prev) => {
+      // Si solo hay una fila vacía, la reemplazamos
+      const soloVacia = prev.length === 1 && !prev[0].descripcion && !prev[0].precio
+      const nuevaFila = {
+        descripcion: servicio.descripcion,
+        cantidad: '1',
+        precio: String(servicio.precio),
+        total: String(servicio.precio),
+      }
+      return soloVacia ? [nuevaFila] : [...prev, nuevaFila]
+    })
+  }
+
   const exportarPDF = async () => {
     setExportando(true)
     try {
-      const elemento = document.getElementById('documento-pdf')
+      // Capturamos el elemento oculto a tamaño real (sin transform)
+      const elemento = document.getElementById('documento-pdf-capture')
       const canvas = await html2canvas(elemento, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
+        width: elemento.offsetWidth,
+        height: elemento.offsetHeight,
+        windowWidth: elemento.offsetWidth,
       })
 
       const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const imgH = (canvas.height * pageW) / canvas.width
 
-      let heightLeft = pdfHeight
-      let position = 0
+      let heightLeft = imgH
+      let yPos = 0
 
-      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight)
-      heightLeft -= pdf.internal.pageSize.getHeight()
+      pdf.addImage(imgData, 'PNG', 0, yPos, pageW, imgH)
+      heightLeft -= pageH
 
       while (heightLeft > 0) {
-        position -= pdf.internal.pageSize.getHeight()
+        yPos -= pageH
         pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight)
-        heightLeft -= pdf.internal.pageSize.getHeight()
+        pdf.addImage(imgData, 'PNG', 0, yPos, pageW, imgH)
+        heightLeft -= pageH
       }
 
       const nombre = `${modo === 'cotizacion' ? 'Cotizacion' : 'Factura'}_${cliente.comprobante || 'sin-numero'}_${cliente.nombre || 'cliente'}.pdf`
@@ -126,6 +146,7 @@ export default function App() {
             <DatosEmisor emisor={emisor} setEmisor={setEmisor} />
             <DatosCliente cliente={cliente} setCliente={setCliente} modo={modo} />
             <TablaArticulos articulos={articulos} setArticulos={setArticulos} />
+            <CatalogoServicios onAgregar={agregarDesdesCatalogo} />
             <Totales
               subtotal={subtotal}
               itbis={itbis}
@@ -160,6 +181,30 @@ export default function App() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Elemento oculto a tamaño real para captura PDF — NO visible, NO transformado */}
+      <div
+        style={{
+          position: 'fixed',
+          left: '-9999px',
+          top: 0,
+          zIndex: -1,
+          pointerEvents: 'none',
+        }}
+        aria-hidden="true"
+      >
+        <Previsualizacion
+          captureId="documento-pdf-capture"
+          modo={modo}
+          emisor={emisor}
+          cliente={cliente}
+          articulos={articulos}
+          subtotal={subtotal}
+          itbis={itbis}
+          total={total}
+          tasaItbis={tasaItbis}
+        />
       </div>
     </div>
   )
