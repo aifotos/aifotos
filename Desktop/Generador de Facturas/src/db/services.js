@@ -1,0 +1,110 @@
+import { query, queryOne, execute, nameKey } from './index.js'
+
+/**
+ * Catalogo de productos y servicios. Igual que los clientes: se autoalimenta
+ * desde las facturas. Escribes "Sesion fotografica — RD$ 15,000" una vez y
+ * la proxima factura te lo sugiere con su precio.
+ */
+
+/** Sugerencias para el autocompletado de la descripcion de una linea. */
+export function search(termino = '', limite = 8) {
+  const t = nameKey(termino)
+  if (!t) {
+    return query(
+      `SELECT * FROM services
+       WHERE archived = 0
+       ORDER BY times_used DESC, last_used_at DESC, name ASC
+       LIMIT $1`,
+      [limite],
+    )
+  }
+  return query(
+    `SELECT * FROM services
+     WHERE archived = 0 AND (name_key LIKE $1 OR lower(description) LIKE $1)
+     ORDER BY
+       CASE WHEN name_key LIKE $2 THEN 0 ELSE 1 END,
+       times_used DESC, name ASC
+     LIMIT $3`,
+    [`%${t}%`, `${t}%`, limite],
+  )
+}
+
+export function listAll({ includeArchived = false } = {}) {
+  return query(
+    `SELECT * FROM services
+     WHERE ($1 = 1 OR archived = 0)
+     ORDER BY times_used DESC, name ASC`,
+    [includeArchived ? 1 : 0],
+  )
+}
+
+export function getById(id) {
+  return queryOne(`SELECT * FROM services WHERE id = $1`, [id])
+}
+
+/**
+ * Guarda en silencio un servicio escrito en una factura.
+ *
+ * Diferencia importante con los clientes: el precio SI se actualiza al
+ * ultimo que usaste. Si cobras una sesion a 15,000 y el mes que viene la
+ * facturas a 18,000, el catalogo debe aprender el precio nuevo — es el que
+ * quieres que te sugiera la proxima vez.
+ */
+export async function upsertByName({ name, description = '', unit_price_cents = 0, unit = 'unidad' }) {
+  const limpio = String(name ?? '').trim()
+  if (!limpio) return null
+
+  const key = nameKey(limpio)
+  const existente = await queryOne(`SELECT * FROM services WHERE name_key = $1`, [key])
+
+  if (!existente) {
+    const { lastInsertId } = await execute(
+      `INSERT INTO services (name, name_key, description, unit_price_cents, unit,
+                             times_used, last_used_at)
+       VALUES ($1, $2, $3, $4, $5, 1, datetime('now'))`,
+      [limpio, key, description, unit_price_cents, unit],
+    )
+    return getById(lastInsertId)
+  }
+
+  await execute(
+    `UPDATE services SET
+       name             = $1,
+       description      = COALESCE(NULLIF(description, ''), $2),
+       unit_price_cents = $3,
+       unit             = $4,
+       times_used       = times_used + 1,
+       last_used_at     = datetime('now'),
+       archived         = 0
+     WHERE id = $5`,
+    [limpio, description, unit_price_cents, unit, existente.id],
+  )
+  return getById(existente.id)
+}
+
+/** Edicion explicita desde la pantalla de Servicios. */
+export async function update(id, datos) {
+  await execute(
+    `UPDATE services SET
+       name = $1, name_key = $2, description = $3,
+       unit_price_cents = $4, unit = $5
+     WHERE id = $6`,
+    [
+      datos.name,
+      nameKey(datos.name),
+      datos.description ?? '',
+      datos.unit_price_cents ?? 0,
+      datos.unit ?? 'unidad',
+      id,
+    ],
+  )
+  return getById(id)
+}
+
+export function archive(id) {
+  return execute(`UPDATE services SET archived = 1 WHERE id = $1`, [id])
+}
+
+export function unarchive(id) {
+  return execute(`UPDATE services SET archived = 0 WHERE id = $1`, [id])
+}
