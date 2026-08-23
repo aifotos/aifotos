@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/* ============================================================
+   SISTEMA DE DISENO — FacturaPro
+   Inspirado en Bookipi Invoice: limpio, minimalista, mucho aire.
+   ============================================================ */
+@theme {
+  /* --- Tipografia: SF Pro nativa en macOS, Inter como respaldo --- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter",
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+
+  /* --- Neutros de interfaz (grises frios, tipo papel) --- */
+  --color-canvas: #f7f8fa;   /* fondo de la app */
+  --color-surface: #ffffff;  /* tarjetas, documento */
+  --color-line: #e8eaee;     /* bordes sutiles */
+  --color-line-strong: #d3d7de;
+
+  --color-ink: #101318;      /* texto principal */
+  --color-ink-soft: #5b6472; /* texto secundario */
+  --color-ink-faint: #9aa3b0;/* placeholders, labels */
+
+  /* --- Acento: azul profesional --- */
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dae6ff;
+  --color-brand-200: #bcd2ff;
+  --color-brand-400: #6f9bff;
+  --color-brand-500: #3b74f5;
+  --color-brand-600: #2560e0;
+  --color-brand-700: #1c4bb8;
+
+  /* --- Estados de factura --- */
+  --color-paid-bg: #e7f7ef;
+  --color-paid-ink: #127a4f;
+  --color-pending-bg: #fff4e0;
+  --color-pending-ink: #a8620a;
+  --color-overdue-bg: #fdeaea;
+  --color-overdue-ink: #b3261e;
+  --color-draft-bg: #f0f1f4;
+  --color-draft-ink: #5b6472;
+
+  /* --- Radios y sombras suaves --- */
+  --radius-card: 14px;
+  --shadow-card: 0 1px 2px rgb(16 19 24 / 0.04), 0 4px 16px rgb(16 19 24 / 0.05);
+  --shadow-pop: 0 8px 32px rgb(16 19 24 / 0.12);
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* App de escritorio: sin rebote de scroll ni seleccion accidental de UI */
+    overscroll-behavior: none;
+  }
+
+  /* El texto del documento si se puede seleccionar; los chrome de la app no. */
+  input, textarea, [data-selectable] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Quitar las flechitas de los inputs numericos */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  ::placeholder {
+    color: var(--color-ink-faint);
+  }
+
+  /* Scrollbar discreta estilo macOS */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(16 19 24 / 0.18);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgb(16 19 24 / 0.3); }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
+
+/* ============================================================
+   IMPRESION / PDF
+   Solo se renderiza el documento, sin la interfaz de la app.
+   ============================================================ */
+@media print {
+  @page { size: A4; margin: 0; }
+  body { background: #fff; }
+  .no-print { display: none !important; }
+}
