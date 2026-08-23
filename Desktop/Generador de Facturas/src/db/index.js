@@ -1,25 +1,39 @@
-import Database from '@tauri-apps/plugin-sql'
-
 /**
  * Conexion unica a la base de datos local.
  *
- * El archivo vive en la carpeta de datos de la app
+ * En la app compilada (`npm run app:dev` / `app:build`) usa SQLite nativo
+ * a traves de Tauri. El archivo vive en la carpeta de datos de la app
  * (~/Library/Application Support/com.aifotos.facturapro/facturapro.db),
- * no dentro del proyecto: asi las facturas sobreviven a una reinstalacion
- * o a un `npm run app:build`.
+ * no dentro del proyecto: asi las facturas sobreviven a una reinstalacion.
  *
- * Las migraciones las corre Tauri al arrancar (src-tauri/src/lib.rs),
- * antes de que este modulo pueda conectarse.
+ * En el navegador (`npm run dev`, para maquetar rapido) usa el mismo SQLite
+ * compilado a WebAssembly, con el mismo esquema y datos de ejemplo. Ese
+ * camino se elimina del build de produccion.
  */
 let conexion = null
+
+/** ¿Estamos dentro de la ventana nativa de Tauri? */
+function enTauri() {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+async function conectar() {
+  if (enTauri()) {
+    const { default: Database } = await import('@tauri-apps/plugin-sql')
+    return Database.load('sqlite:facturapro.db')
+  }
+  if (import.meta.env.DEV) {
+    const { loadBrowserDatabase } = await import('./browser.js')
+    return loadBrowserDatabase()
+  }
+  throw new Error('No hay base de datos disponible fuera de la app.')
+}
 
 export function getDb() {
   // Se guarda la promesa, no el resultado: si dos componentes piden la
   // base de datos a la vez durante el arranque, ambos esperan la misma
   // conexion en lugar de abrir dos.
-  if (!conexion) {
-    conexion = Database.load('sqlite:facturapro.db')
-  }
+  if (!conexion) conexion = conectar()
   return conexion
 }
 

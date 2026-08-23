@@ -1,112 +1,68 @@
 import { useEffect, useState } from 'react'
-import { FileText, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
-import { query } from './db/index.js'
+import { AlertTriangle, Loader2 } from 'lucide-react'
+import AppShell from './components/layout/AppShell.jsx'
+import Dashboard from './pages/Dashboard.jsx'
+import Clients from './pages/Clients.jsx'
+import Services from './pages/Services.jsx'
+import Settings from './pages/Settings.jsx'
 import * as settings from './db/settings.js'
-import * as clients from './db/clients.js'
-import * as services from './db/services.js'
-import * as invoices from './db/invoices.js'
-import { formatMoney } from './lib/money.js'
 
 /**
- * Pantalla temporal de verificacion (Fase 2).
- * Abre la base de datos, corre las migraciones y hace un recorrido
- * completo: crear cliente, crear servicio, emitir factura, leerla.
- * En la Fase 3 se reemplaza por el Dashboard real.
+ * Raiz de la app.
+ *
+ * La navegacion es un `useState`, no una libreria de rutas: son cuatro
+ * pantallas en una app de escritorio sin URLs, sin historial de navegador
+ * y sin enlaces compartibles. Un router aqui seria peso muerto.
  */
 export default function App() {
-  const [pasos, setPasos] = useState([])
-  const [estado, setEstado] = useState('cargando')
+  const [seccion, setSeccion] = useState('invoices')
+  const [ajustes, setAjustes] = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    let vivo = true
-    const registrar = (label, detail, ok = true) =>
-      vivo && setPasos((p) => [...p, { label, detail, ok }])
-
-    async function verificar() {
-      try {
-        const tablas = await query(
-          `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
-        )
-        registrar('Base de datos abierta', tablas.map((t) => t.name).join(', '))
-
-        const ajustes = await settings.get()
-        registrar(
-          'Ajustes del emisor',
-          `Moneda ${ajustes.currency_symbol} · Prefijo ${ajustes.invoice_prefix} · Vence a ${ajustes.payment_terms_days} dias`,
-        )
-
-        const siguiente = await settings.peekNextNumber()
-        registrar('Numeracion automatica', `Proxima factura: ${siguiente}`)
-
-        const nClientes = (await clients.listAll()).length
-        const nServicios = (await services.listAll()).length
-        registrar('Clientes y catalogo', `${nClientes} cliente(s), ${nServicios} servicio(s)`)
-
-        const resumen = await invoices.summary()
-        registrar(
-          'Resumen de facturas',
-          `Cobrado ${formatMoney(resumen.cobrado)} · Por cobrar ${formatMoney(resumen.por_cobrar)}`,
-        )
-
-        if (vivo) setEstado('ok')
-      } catch (error) {
-        registrar('Error', String(error?.message ?? error), false)
-        if (vivo) setEstado('error')
-      }
-    }
-
-    verificar()
-    return () => {
-      vivo = false
-    }
+    settings.get().then(setAjustes).catch((e) => setError(String(e?.message ?? e)))
   }, [])
 
-  return (
-    <div className="min-h-full flex items-center justify-center p-10">
-      <div className="w-full max-w-xl">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="size-11 rounded-xl bg-brand-600 flex items-center justify-center shadow-card">
-            <FileText className="size-6 text-white" strokeWidth={2} />
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center p-10">
+        <div className="max-w-md text-center">
+          <div className="size-12 rounded-2xl bg-overdue-bg flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="size-6 text-overdue-ink" strokeWidth={2} />
           </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-ink">FacturaPro</h1>
-            <p className="text-sm text-ink-soft">Fase 2 — base de datos local</p>
-          </div>
+          <h1 className="text-base font-semibold text-ink">No se pudo abrir la base de datos</h1>
+          <p className="mt-2 text-sm text-ink-soft" data-selectable>{error}</p>
         </div>
-
-        <div className="bg-surface rounded-card shadow-card border border-line divide-y divide-line overflow-hidden">
-          {pasos.map(({ label, detail, ok }, i) => (
-            <div key={i} className="flex items-start gap-3 px-5 py-4">
-              {ok ? (
-                <CheckCircle2 className="size-5 text-brand-500 shrink-0 mt-0.5" strokeWidth={2} />
-              ) : (
-                <XCircle className="size-5 text-overdue-ink shrink-0 mt-0.5" strokeWidth={2} />
-              )}
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-ink">{label}</p>
-                <p className="text-xs text-ink-soft break-words" data-selectable>
-                  {detail}
-                </p>
-              </div>
-            </div>
-          ))}
-
-          {estado === 'cargando' && (
-            <div className="flex items-center gap-3 px-5 py-4 text-ink-soft">
-              <Loader2 className="size-5 animate-spin shrink-0" strokeWidth={2} />
-              <p className="text-sm">Abriendo la base de datos…</p>
-            </div>
-          )}
-        </div>
-
-        <p className="mt-6 text-center text-xs text-ink-faint">
-          {estado === 'ok'
-            ? 'Fase 2 completada. Siguiente: Dashboard y layout.'
-            : estado === 'error'
-              ? 'Algo fallo al abrir la base de datos.'
-              : ' '}
-        </p>
       </div>
-    </div>
+    )
+  }
+
+  if (!ajustes) {
+    return (
+      <div className="h-full flex items-center justify-center text-ink-soft">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    )
+  }
+
+  const moneda = ajustes.currency_symbol
+
+  // El editor de facturas llega en la Fase 4.
+  const nuevaFactura = () => {}
+  const abrirFactura = () => {}
+
+  return (
+    <AppShell seccion={seccion} onNavegar={setSeccion} onNuevaFactura={nuevaFactura}>
+      {seccion === 'invoices' && (
+        <Dashboard
+          moneda={moneda}
+          onNuevaFactura={nuevaFactura}
+          onAbrirFactura={abrirFactura}
+        />
+      )}
+      {seccion === 'clients' && <Clients />}
+      {seccion === 'services' && <Services moneda={moneda} />}
+      {seccion === 'settings' && <Settings onGuardado={setAjustes} />}
+    </AppShell>
   )
 }
