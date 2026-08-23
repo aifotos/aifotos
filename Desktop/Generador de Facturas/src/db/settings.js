@@ -57,25 +57,50 @@ export async function peekNextNumber() {
 }
 
 /**
- * Reserva el siguiente numero y avanza el contador.
+ * Reserva el siguiente numero de factura y avanza el contador.
  *
  * El `WHERE next_invoice_number = $1` es un seguro: si otra parte de la app
  * reservo un numero entre la lectura y la escritura, este UPDATE no afecta
  * ninguna fila y volvemos a intentarlo con el valor nuevo. Asi nunca salen
  * dos facturas con el mismo numero.
+ *
+ * Solo se llama al EMITIR. Los borradores usan `consumeDraftNumber`, para
+ * que un borrador que nunca llegas a emitir no deje un hueco permanente
+ * en la numeracion fiscal.
  */
 export async function consumeNumber() {
+  return reservar('next_invoice_number', (s) => s.invoice_prefix)
+}
+
+/**
+ * Numero interno de un borrador: 'BOR-0003'.
+ *
+ * Existe solo para cumplir la restriccion UNIQUE de `invoices.number`.
+ * En pantalla un borrador se muestra como "Borrador", nunca con este
+ * codigo, y al emitirlo se sustituye por el numero real.
+ */
+export async function consumeDraftNumber() {
+  return reservar('next_draft_number', () => PREFIJO_BORRADOR)
+}
+
+export const PREFIJO_BORRADOR = 'BOR-'
+
+/** ¿Este numero es el de un borrador sin emitir? */
+export function esBorrador(number) {
+  return !number || String(number).startsWith(PREFIJO_BORRADOR)
+}
+
+async function reservar(columna, prefijoDe) {
   for (let intento = 0; intento < 5; intento++) {
     const s = await get()
-    const actual = s.next_invoice_number
+    const actual = s[columna]
     const { rowsAffected } = await execute(
-      `UPDATE settings SET next_invoice_number = $1
-       WHERE id = 1 AND next_invoice_number = $2`,
+      `UPDATE settings SET ${columna} = $1 WHERE id = 1 AND ${columna} = $2`,
       [actual + 1, actual],
     )
-    if (rowsAffected > 0) return formatNumber(s.invoice_prefix, actual)
+    if (rowsAffected > 0) return formatNumber(prefijoDe(s), actual)
   }
-  throw new Error('No se pudo reservar un numero de factura')
+  throw new Error('No se pudo reservar un numero')
 }
 
 /** 'FAC-' + 7 -> 'FAC-0007' (4 digitos minimo, crece solo si hace falta) */

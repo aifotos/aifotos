@@ -5,6 +5,8 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 /// WebAssembly cuando corres `npm run dev` en el navegador para maquetar.
 /// Un solo archivo = imposible que se desincronicen.
 const V1_ESQUEMA_INICIAL: &str = include_str!("../migrations/001_esquema_inicial.sql");
+const V2_NUMERACION_BORRADORES: &str =
+    include_str!("../migrations/002_numeracion_de_borradores.sql");
 
 /// Migraciones de la base de datos local (SQLite).
 ///
@@ -18,12 +20,20 @@ const V1_ESQUEMA_INICIAL: &str = include_str!("../migrations/001_esquema_inicial
 /// Para cambiar el esquema se agrega SIEMPRE una migracion nueva con la
 /// version siguiente. La v1 ya no se toca.
 fn migrations() -> Vec<Migration> {
-    vec![Migration {
-        version: 1,
-        description: "esquema inicial: settings, clients, services, invoices, invoice_items",
-        sql: V1_ESQUEMA_INICIAL,
-        kind: MigrationKind::Up,
-    }]
+    vec![
+        Migration {
+            version: 1,
+            description: "esquema inicial: settings, clients, services, invoices, invoice_items",
+            sql: V1_ESQUEMA_INICIAL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "secuencia aparte para los numeros de borrador",
+            sql: V2_NUMERACION_BORRADORES,
+            kind: MigrationKind::Up,
+        },
+    ]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

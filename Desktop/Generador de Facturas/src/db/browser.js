@@ -15,7 +15,8 @@
  */
 import initSqlJs from 'sql.js'
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
-import esquema from '../../src-tauri/migrations/001_esquema_inicial.sql?raw'
+import v1 from '../../src-tauri/migrations/001_esquema_inicial.sql?raw'
+import v2 from '../../src-tauri/migrations/002_numeracion_de_borradores.sql?raw'
 import { datosDeEjemplo } from './seed.js'
 
 const CLAVE = 'facturapro:dev-db'
@@ -24,6 +25,7 @@ const CLAVE = 'facturapro:dev-db'
 class BrowserDatabase {
   constructor(db) {
     this.db = db
+    this.enTransaccion = false
   }
 
   async select(sql, params = []) {
@@ -36,6 +38,9 @@ class BrowserDatabase {
   }
 
   async execute(sql, params = []) {
+    const control = sql.trim().slice(0, 8).toUpperCase()
+    if (control.startsWith('BEGIN')) this.enTransaccion = true
+
     const stmt = this.db.prepare(sql)
     stmt.bind(bindings(sql, params))
     stmt.step()
@@ -44,7 +49,14 @@ class BrowserDatabase {
       rowsAffected: this.db.getRowsModified(),
       lastInsertId: this.db.exec('SELECT last_insert_rowid()')[0]?.values[0][0] ?? 0,
     }
-    guardar(this.db)
+
+    if (control.startsWith('COMMIT') || control.startsWith('ROLLBAC')) {
+      this.enTransaccion = false
+    }
+    // Exportar la base a mitad de una transaccion la deja inconsistente y
+    // hace que el COMMIT posterior falle con "no transaction is active".
+    // Se persiste solo cuando no hay ninguna transaccion abierta.
+    if (!this.enTransaccion) guardar(this.db)
     return resultado
   }
 }
@@ -63,12 +75,23 @@ function bindings(sql, params) {
   return Object.fromEntries(Object.entries(nombres).filter(([k]) => usados.has(k)))
 }
 
+/**
+ * Vuelca la base a localStorage.
+ *
+ * Se agrupa con un temporizador porque `export()` serializa el archivo
+ * entero (unos 160 KB): hacerlo en cada INSERT de cada linea de una
+ * factura convertiria el autoguardado en un tiron perceptible.
+ */
+let temporizadorGuardado = null
 function guardar(db) {
-  try {
-    localStorage.setItem(CLAVE, JSON.stringify(Array.from(db.export())))
-  } catch {
-    // Si no cabe en localStorage, se pierde al recargar. Es modo desarrollo.
-  }
+  clearTimeout(temporizadorGuardado)
+  temporizadorGuardado = setTimeout(() => {
+    try {
+      localStorage.setItem(CLAVE, JSON.stringify(Array.from(db.export())))
+    } catch {
+      // Si no cabe en localStorage, se pierde al recargar. Es modo desarrollo.
+    }
+  }, 250)
 }
 
 export async function loadBrowserDatabase() {
@@ -84,7 +107,8 @@ export async function loadBrowserDatabase() {
   }
 
   const db = new SQL.Database()
-  db.run(esquema)
+  // Las mismas migraciones y en el mismo orden que aplica Tauri.
+  for (const migracion of [v1, v2]) db.run(migracion)
   db.run(datosDeEjemplo)
   guardar(db)
   console.info(

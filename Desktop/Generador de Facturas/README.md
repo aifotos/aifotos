@@ -86,6 +86,26 @@ El SQL vive **solo** en `src/db/`. Un componente que necesita datos llama a una
 funcion de `src/db/`, nunca escribe una consulta. Asi, si algun dia la base de
 datos cambia (SQLite -> Postgres/Supabase), solo se toca esa carpeta.
 
+### Borradores y numeracion
+
+Un borrador no consume numero de factura: usa una secuencia interna
+(`BOR-0003`) y recibe su `FAC-0007` definitivo solo al emitirlo. Asi, tres
+borradores que nunca llegas a emitir no dejan tres huecos en la numeracion
+fiscal. En pantalla un borrador nunca ensena su `BOR-`, solo "Sin emitir".
+
+El CRM y el catalogo aprenden **solo al emitir**, nunca durante el
+autoguardado. El autoguardado dispara mientras escribes, asi que aprender
+ahi llenaria el catalogo con texto a medias: escribir "Video promocional"
+dejaria "vi", "vid", "video"... como servicios. Un borrador es una idea;
+una factura emitida es un hecho.
+
+### Si `npm run app:build` se queda colgado
+
+El ultimo paso empaqueta el `.dmg` con `bundle_dmg.sh`, que pide a Finder
+que coloque los iconos por AppleScript y a veces se atasca. El `.app` ya
+esta listo para entonces, en
+`src-tauri/target/release/bundle/macos/`. Corta con Ctrl-C y usalo.
+
 ### Cuando algo falla
 
 La app compilada escribe los errores en
@@ -98,5 +118,5 @@ porque una ventana en blanco no dice nada por si sola.
 - [x] **Fase 1** — Setup, estructura y sistema de diseno
 - [x] **Fase 2** — Esquema de base de datos y capa de acceso a datos
 - [x] **Fase 3** — Dashboard, layout y pantallas de consulta
-- [ ] **Fase 4** — Formulario de factura y autoguardado
+- [x] **Fase 4** — Editor de facturas, autocompletado y autoguardado
 - [ ] **Fase 5** — Exportacion a PDF

@@ -17,7 +17,8 @@ UPDATE settings SET
   payment_details = 'Banco Popular · Cuenta de ahorros 123-456789-0 · AIFotos'
 WHERE id = 1;
 
-UPDATE settings SET next_invoice_number = 6 WHERE id = 1;
+-- Cuatro facturas emitidas (FAC-0001..0004) y un borrador sin emitir.
+UPDATE settings SET next_invoice_number = 5, next_draft_number = 2 WHERE id = 1;
 
 INSERT INTO clients (id, name, name_key, email, phone, address, tax_id, times_used, last_used_at) VALUES
  (1, 'Restaurante La Bodeguita', 'restaurante la bodeguita', 'gerencia@labodeguita.do', '(809) 555-0111', 'Av. Winston Churchill 45, Piantini', '130-45678-9', 3, datetime('now','-2 days')),
@@ -51,7 +52,7 @@ INSERT INTO invoices (id, number, client_id, client_name, client_email, client_p
      date('now','-2 days'), date('now','+13 days'), 'pending', NULL,
      1950000, 'none', 0, 0, 1950000, 'Gracias por confiar en nosotros.', 'Banco Popular · Cuenta de ahorros 123-456789-0 · AIFotos'),
 
- (5, 'FAC-0005', 1, 'Restaurante La Bodeguita', 'gerencia@labodeguita.do', '(809) 555-0111', 'Av. Winston Churchill 45, Piantini', '130-45678-9',
+ (5, 'BOR-0001', 1, 'Restaurante La Bodeguita', 'gerencia@labodeguita.do', '(809) 555-0111', 'Av. Winston Churchill 45, Piantini', '130-45678-9',
      date('now'), NULL, 'draft', NULL,
      1500000, 'none', 0, 0, 1500000, '', 'Banco Popular · Cuenta de ahorros 123-456789-0 · AIFotos');
 

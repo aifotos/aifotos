@@ -71,7 +71,15 @@ export async function transaction(fn) {
     await db.execute('COMMIT')
     return resultado
   } catch (error) {
-    await db.execute('ROLLBACK')
+    // El ROLLBACK va en su propio try: si tambien falla, el error que
+    // interesa es el ORIGINAL, no el del rollback. Sin esto, un fallo al
+    // deshacer sustituye la causa real por "cannot rollback" y deja el
+    // problema de verdad invisible.
+    try {
+      await db.execute('ROLLBACK')
+    } catch (errorAlDeshacer) {
+      error.rollbackError = errorAlDeshacer
+    }
     throw error
   }
 }

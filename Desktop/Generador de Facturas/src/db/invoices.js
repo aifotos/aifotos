@@ -72,14 +72,12 @@ export function isOverdue(invoice) {
 /**
  * Guarda una factura entera. Es la unica funcion que deberia usar el editor.
  *
- * Hace cuatro cosas en una sola transaccion:
- *   1. Crea o actualiza el cliente (alta silenciosa)
- *   2. Crea o actualiza cada servicio del catalogo (alta silenciosa)
- *   3. Recalcula los totales desde las lineas — nunca confia en el total
- *      que venga del formulario
- *   4. Reemplaza las lineas y guarda la cabecera
+ * En una sola transaccion: recalcula los totales desde las lineas (nunca
+ * confia en el total que venga del formulario), guarda la cabecera y
+ * reemplaza las lineas. Si algo falla, no se guarda nada.
  *
- * Si algo falla, no se guarda nada.
+ * NO da de alta clientes ni servicios. Eso lo hace `aprender()`, y solo
+ * cuando la factura se emite — ver el comentario de esa funcion.
  *
  * @param {object} borrador  Estado del formulario
  * @param {number|null} borrador.id  null para una factura nueva
@@ -107,34 +105,28 @@ export async function save(borrador) {
 
   const totales = invoiceTotals(lineas, discount_type, discount_value)
 
-  // El numero se reserva ANTES de la transaccion: `consumeNumber` hace su
-  // propio UPDATE condicional y no debe deshacerse si la factura falla
-  // (es preferible un hueco en la numeracion que un numero duplicado).
-  const number = id ? borrador.number : await settings.consumeNumber()
+  // El numero se resuelve ANTES de la transaccion: las funciones de reserva
+  // hacen su propio UPDATE condicional y no deben deshacerse si la factura
+  // falla (es preferible un hueco que un numero duplicado).
+  //
+  //   borrador nuevo      -> BOR-0003 (interno, no consume numeracion fiscal)
+  //   borrador que sigue  -> conserva su BOR-0003
+  //   al emitir           -> se reserva el FAC-0007 real
+  //   factura ya emitida  -> nunca cambia de numero
+  let number = borrador.number ?? null
+  if (status === 'draft') {
+    if (!number) number = await settings.consumeDraftNumber()
+  } else if (settings.esBorrador(number)) {
+    number = await settings.consumeNumber()
+  }
 
-  return transaction(async () => {
-    // 1. Cliente
-    const clienteGuardado = await clients.upsertByName(client)
+  // El cliente solo se enlaza si YA existe en el catalogo. Uno nuevo se da
+  // de alta al emitir, no ahora.
+  const clienteExistente = client.name?.trim() ? await clients.getByName(client.name) : null
 
-    // 2. Catalogo de servicios
-    const lineasConServicio = []
-    for (const it of lineas) {
-      const nombre = String(it.description ?? '').trim()
-      let serviceId = it.service_id ?? null
-      if (nombre) {
-        const servicio = await services.upsertByName({
-          name: nombre,
-          unit_price_cents: it.unit_price_cents,
-          unit: it.unit ?? 'unidad',
-        })
-        serviceId = servicio?.id ?? null
-      }
-      lineasConServicio.push({ ...it, service_id: serviceId })
-    }
-
-    // 3. Cabecera
+  const idFactura = await transaction(async () => {
     const campos = [
-      clienteGuardado?.id ?? null,
+      clienteExistente?.id ?? null,
       client.name ?? '',
       client.email ?? '',
       client.phone ?? '',
@@ -158,14 +150,15 @@ export async function save(borrador) {
     if (id) {
       await execute(
         `UPDATE invoices SET
-           client_id = $1, client_name = $2, client_email = $3, client_phone = $4,
-           client_address = $5, client_tax_id = $6, issue_date = $7, due_date = $8,
-           status = $9, paid_at = COALESCE(paid_at, $10),
-           subtotal_cents = $11, discount_type = $12, discount_value = $13,
-           discount_cents = $14, total_cents = $15, currency_symbol = $16,
-           notes = $17, payment_details = $18
-         WHERE id = $19`,
-        [...campos, id],
+           number = $1,
+           client_id = $2, client_name = $3, client_email = $4, client_phone = $5,
+           client_address = $6, client_tax_id = $7, issue_date = $8, due_date = $9,
+           status = $10, paid_at = COALESCE(paid_at, $11),
+           subtotal_cents = $12, discount_type = $13, discount_value = $14,
+           discount_cents = $15, total_cents = $16, currency_symbol = $17,
+           notes = $18, payment_details = $19
+         WHERE id = $20`,
+        [number, ...campos, id],
       )
     } else {
       const res = await execute(
@@ -181,11 +174,11 @@ export async function save(borrador) {
       invoiceId = res.lastInsertId
     }
 
-    // 4. Lineas: se reemplazan enteras. Es mas simple y mas seguro que
-    //    intentar casar cual linea cambio, y son pocas filas.
+    // Lineas: se reemplazan enteras. Es mas simple y mas seguro que
+    // intentar casar cual linea cambio, y son pocas filas.
     await execute(`DELETE FROM invoice_items WHERE invoice_id = $1`, [invoiceId])
-    for (let i = 0; i < lineasConServicio.length; i++) {
-      const it = lineasConServicio[i]
+    for (let i = 0; i < lineas.length; i++) {
+      const it = lineas[i]
       await execute(
         `INSERT INTO invoice_items
            (invoice_id, service_id, position, description, quantity_milli,
@@ -205,27 +198,128 @@ export async function save(borrador) {
     }
 
     return invoiceId
-  }).then((invoiceId) => getFull(invoiceId))
+  })
+
+  // Una factura emitida si alimenta el CRM y el catalogo.
+  if (status !== 'draft') await aprender(idFactura)
+
+  return getFull(idFactura)
+}
+
+/**
+ * Da de alta en el CRM y en el catalogo lo que aparece en una factura.
+ *
+ * Solo se llama al EMITIR, nunca durante el autoguardado de un borrador.
+ * Es una distincion que importa: el autoguardado dispara mientras escribes,
+ * asi que aprender ahi llenaria el catalogo con lo que hubiera a medio
+ * teclear. Escribir "Video promocional" dejaria "vi", "vid", "video"...
+ * como servicios reales, y el autocompletado quedaria inservible en una
+ * semana. Un borrador es una idea; una factura emitida es un hecho.
+ */
+async function aprender(invoiceId) {
+  const factura = await getFull(invoiceId)
+  if (!factura) return
+
+  const cliente = await clients.upsertByName({
+    name: factura.client_name,
+    email: factura.client_email,
+    phone: factura.client_phone,
+    address: factura.client_address,
+    tax_id: factura.client_tax_id,
+  })
+  if (cliente) {
+    await execute(`UPDATE invoices SET client_id = $1 WHERE id = $2`, [cliente.id, invoiceId])
+  }
+
+  for (const it of factura.items) {
+    const nombre = String(it.description ?? '').trim()
+    if (!nombre) continue
+    const servicio = await services.upsertByName({
+      name: nombre,
+      unit_price_cents: it.unit_price_cents,
+      unit: it.unit ?? 'unidad',
+    })
+    if (servicio) {
+      await execute(`UPDATE invoice_items SET service_id = $1 WHERE id = $2`, [
+        servicio.id,
+        it.id,
+      ])
+    }
+  }
+
+  await recomputarUso()
+}
+
+/**
+ * Recalcula `times_used` de clientes y servicios a partir de las facturas
+ * reales, en lugar de ir sumando de uno en uno.
+ *
+ * Un contador que se incrementa se desincroniza en cuanto algo se guarda
+ * dos veces, se edita una factura ya emitida o se borra una. Recalcularlo
+ * es idempotente: da igual cuantas veces se ejecute, el numero siempre
+ * refleja lo que hay. Son dos UPDATE sobre unas pocas filas.
+ */
+export async function recomputarUso() {
+  await execute(
+    `UPDATE clients SET
+       times_used = (SELECT COUNT(*) FROM invoices
+                     WHERE client_id = clients.id AND status != 'draft'),
+       last_used_at = (SELECT MAX(issue_date) FROM invoices
+                       WHERE client_id = clients.id AND status != 'draft')`,
+  )
+  await execute(
+    `UPDATE services SET
+       times_used = (SELECT COUNT(DISTINCT ii.invoice_id)
+                     FROM invoice_items ii
+                     JOIN invoices i ON i.id = ii.invoice_id
+                     WHERE ii.service_id = services.id AND i.status != 'draft'),
+       last_used_at = (SELECT MAX(i.issue_date)
+                       FROM invoice_items ii
+                       JOIN invoices i ON i.id = ii.invoice_id
+                       WHERE ii.service_id = services.id AND i.status != 'draft')`,
+  )
 }
 
 // ------------------------------------------------------------ OPERACIONES
 
+/**
+ * Cambia el estado de una factura.
+ *
+ * Si es la primera vez que sale de borrador, aqui es donde deja de ser
+ * 'BOR-0003' y recibe su numero fiscal definitivo.
+ */
 export async function setStatus(id, status) {
+  const actual = await queryOne(`SELECT number, status FROM invoices WHERE id = $1`, [id])
+  if (!actual) return null
+
+  const number =
+    status !== 'draft' && settings.esBorrador(actual.number)
+      ? await settings.consumeNumber()
+      : actual.number
+
   await execute(
     `UPDATE invoices SET
-       status  = $1,
-       paid_at = CASE WHEN $1 = 'paid'
+       number  = $1,
+       status  = $2,
+       paid_at = CASE WHEN $2 = 'paid'
                       THEN COALESCE(paid_at, datetime('now'))
                       ELSE NULL END
-     WHERE id = $2`,
-    [status, id],
+     WHERE id = $3`,
+    [number, status, id],
   )
+
+  // Al dejar de ser borrador, la factura pasa a alimentar el CRM.
+  if (actual.status === 'draft' && status !== 'draft') await aprender(id)
+  else await recomputarUso()
+
   return getFull(id)
 }
 
 /** Borra la factura; sus lineas se van solas por ON DELETE CASCADE. */
-export function remove(id) {
-  return execute(`DELETE FROM invoices WHERE id = $1`, [id])
+export async function remove(id) {
+  const r = await execute(`DELETE FROM invoices WHERE id = $1`, [id])
+  await recomputarUso()
+  return r
 }
 
 /** Duplica una factura como borrador nuevo, con numero nuevo y fecha de hoy. */
@@ -234,6 +328,7 @@ export async function duplicate(id) {
   if (!original) return null
   return save({
     id: null,
+    number: null,   // el duplicado nace como borrador, con su propio numero
     client: {
       name: original.client_name,
       email: original.client_email,

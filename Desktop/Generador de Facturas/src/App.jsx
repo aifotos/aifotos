@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import Clients from './pages/Clients.jsx'
 import Services from './pages/Services.jsx'
 import Settings from './pages/Settings.jsx'
+import InvoiceEditor from './pages/InvoiceEditor.jsx'
 import * as settings from './db/settings.js'
 import { registrarFallo } from './lib/logging.js'
 
@@ -17,6 +18,9 @@ import { registrarFallo } from './lib/logging.js'
  */
 export default function App() {
   const [seccion, setSeccion] = useState('invoices')
+  // `null` = no hay editor abierto. Un id numerico abre esa factura;
+  // 'nueva' abre un borrador en blanco.
+  const [editando, setEditando] = useState(null)
   const [ajustes, setAjustes] = useState(null)
   const [error, setError] = useState(null)
 
@@ -53,9 +57,28 @@ export default function App() {
 
   const moneda = ajustes.currency_symbol
 
-  // El editor de facturas llega en la Fase 4.
-  const nuevaFactura = () => {}
-  const abrirFactura = () => {}
+  const nuevaFactura = () => setEditando('nueva')
+  const abrirFactura = (factura) => setEditando(factura.id)
+
+  // El editor ocupa toda la ventana: no comparte sitio con la barra lateral,
+  // porque al escribir una factura no quieres nada mas en pantalla.
+  if (editando !== null) {
+    return (
+      <InvoiceEditor
+        // Al cambiar de factura hay que reiniciar el estado del formulario.
+        // Sin esta `key`, React reutilizaria el componente y arrastraria el
+        // borrador anterior a la factura recien abierta.
+        key={editando}
+        ajustes={ajustes}
+        facturaId={editando === 'nueva' ? null : editando}
+        onSalir={() => {
+          setEditando(null)
+          // Los ajustes pueden haber cambiado (numeracion consumida).
+          settings.get().then(setAjustes).catch(() => {})
+        }}
+      />
+    )
+  }
 
   return (
     <AppShell seccion={seccion} onNavegar={setSeccion} onNuevaFactura={nuevaFactura}>

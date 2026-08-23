@@ -3,6 +3,7 @@ import Badge from '../ui/Badge.jsx'
 import { formatMoney } from '../../lib/money.js'
 import { formatDateShort, dueLabel } from '../../lib/dates.js'
 import { isOverdue } from '../../db/invoices.js'
+import { esBorrador } from '../../db/settings.js'
 
 /** Una fila de la lista de facturas. Toda la fila es clicable. */
 export default function InvoiceRow({ invoice, onAbrir, onMenu }) {
@@ -19,7 +20,12 @@ export default function InvoiceRow({ invoice, onAbrir, onMenu }) {
         hover:bg-canvas focus-visible:bg-canvas focus-visible:outline-none"
     >
       <div className="min-w-0">
-        <p className="text-sm font-medium text-ink tabular-nums">{invoice.number}</p>
+        {/* Un borrador lleva un numero interno ('BOR-0003') que solo existe
+            para la restriccion UNIQUE. Ensenarselo al usuario confundiria:
+            no es un numero de factura y nunca saldra en un PDF. */}
+        <p className={`text-sm font-medium tabular-nums ${esBorrador(invoice.number) ? 'text-ink-faint' : 'text-ink'}`}>
+          {esBorrador(invoice.number) ? 'Sin emitir' : invoice.number}
+        </p>
         <p className="text-xs text-ink-faint">{formatDateShort(invoice.issue_date)}</p>
       </div>
 
