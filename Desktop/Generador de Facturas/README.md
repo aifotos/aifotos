@@ -71,16 +71,32 @@ Generador de Facturas/
         └── lib.rs             Registro de plugins + migraciones de la BD
 ```
 
+### Regla de oro de las migraciones
+
+`src-tauri/migrations/001_esquema_inicial.sql` **no se toca nunca mas**.
+SQLite guarda un checksum de cada migracion aplicada; si el archivo cambia,
+aunque solo sea un espacio, la app arranca con `migration 1 was previously
+applied but has been modified` y la unica salida es borrar la base del
+usuario — o sea, sus facturas. Para cambiar el esquema se agrega
+`002_*.sql` y se registra en `migrations()` de `src-tauri/src/lib.rs`.
+
 ### Regla de oro de la estructura
 
 El SQL vive **solo** en `src/db/`. Un componente que necesita datos llama a una
 funcion de `src/db/`, nunca escribe una consulta. Asi, si algun dia la base de
 datos cambia (SQLite -> Postgres/Supabase), solo se toca esa carpeta.
 
+### Cuando algo falla
+
+La app compilada escribe los errores en
+`~/Library/Logs/com.aifotos.facturapro/FacturaPro.log`. En desarrollo salen
+por la terminal: `src/lib/logging.js` reenvia ahi los errores del webview,
+porque una ventana en blanco no dice nada por si sola.
+
 ## Estado del desarrollo
 
 - [x] **Fase 1** — Setup, estructura y sistema de diseno
-- [ ] **Fase 2** — Esquema de base de datos (clientes, servicios, facturas)
-- [ ] **Fase 3** — Dashboard y layout
+- [x] **Fase 2** — Esquema de base de datos y capa de acceso a datos
+- [x] **Fase 3** — Dashboard, layout y pantallas de consulta
 - [ ] **Fase 4** — Formulario de factura y autoguardado
 - [ ] **Fase 5** — Exportacion a PDF

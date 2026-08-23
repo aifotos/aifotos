@@ -6,6 +6,7 @@ import Clients from './pages/Clients.jsx'
 import Services from './pages/Services.jsx'
 import Settings from './pages/Settings.jsx'
 import * as settings from './db/settings.js'
+import { registrarFallo } from './lib/logging.js'
 
 /**
  * Raiz de la app.
@@ -20,7 +21,12 @@ export default function App() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    settings.get().then(setAjustes).catch((e) => setError(String(e?.message ?? e)))
+    settings.get()
+      .then(setAjustes)
+      .catch((e) => {
+        registrarFallo('arranque: no se pudo abrir la base de datos', e)
+        setError(String(e?.message ?? e))
+      })
   }, [])
 
   if (error) {

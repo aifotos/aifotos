@@ -7,9 +7,16 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 const V1_ESQUEMA_INICIAL: &str = include_str!("../migrations/001_esquema_inicial.sql");
 
 /// Migraciones de la base de datos local (SQLite).
-/// Cada migracion se ejecuta una sola vez y queda registrada por su `version`.
-/// Para cambiar el esquema NUNCA se edita una migracion ya publicada:
-/// se agrega una nueva con la version siguiente.
+///
+/// Cada migracion se ejecuta una sola vez y queda registrada con un
+/// CHECKSUM de su contenido. Editar una migracion ya aplicada — aunque
+/// solo cambien los espacios — hace que la app falle al arrancar con:
+///
+///     migration 1 was previously applied but has been modified
+///
+/// y la unica salida es borrar la base del usuario, es decir, sus facturas.
+/// Para cambiar el esquema se agrega SIEMPRE una migracion nueva con la
+/// version siguiente. La v1 ya no se toca.
 fn migrations() -> Vec<Migration> {
     vec![Migration {
         version: 1,
@@ -30,16 +37,20 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            Ok(())
-        })
+        // El registro se activa tambien en la app compilada, no solo en
+        // desarrollo: cuando un usuario reporta "se quedo en blanco", el
+        // archivo de log es la unica pista que hay. En desarrollo sale por
+        // la terminal; compilada, escribe en ~/Library/Logs/FacturaPro/.
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(if cfg!(debug_assertions) {
+                    log::LevelFilter::Info
+                } else {
+                    log::LevelFilter::Warn
+                })
+                .build(),
+        )
+        .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
