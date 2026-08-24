@@ -1,4 +1,4 @@
-import { query, queryOne, execute, transaction } from './index.js'
+import { query, queryOne, execute } from './index.js'
 import * as invoices from './invoices.js'
 import * as settings from './settings.js'
 import { today, addDays } from '../lib/dates.js'
@@ -106,12 +106,20 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
     currency_symbol: cot.currency_symbol,
   })
 
-  await transaction(async () => {
+  // Un UPDATE por clave primaria es atomico por si mismo; no necesita
+  // transaccion. Si aun asi fallara, la factura quedaria creada sin el
+  // enlace, asi que se deshace: es preferible perder la factura —que se
+  // vuelve a generar con un clic— a dejar la cotizacion convertible otra
+  // vez y acabar facturando el mismo trabajo dos veces.
+  try {
     await execute(
       `UPDATE invoices SET status = 'accepted', converted_to_id = $1 WHERE id = $2`,
       [factura.id, quoteId],
     )
-  })
+  } catch (error) {
+    await execute(`DELETE FROM invoices WHERE id = $1`, [factura.id])
+    throw error
+  }
 
   return factura
 }

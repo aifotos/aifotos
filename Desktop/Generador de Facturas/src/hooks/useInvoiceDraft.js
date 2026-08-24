@@ -91,6 +91,15 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
   const temporizador = useRef(null)
   const guardando = useRef(false)
 
+  // El id y el numero que asigno la base, fuera del estado de React.
+  //
+  // Estaban SOLO en el estado, y ahi se perdian: si un guardado fallaba, el
+  // `setBorrador` que los devolvia nunca llegaba a ejecutarse y el siguiente
+  // autoguardado volvia a entrar con id = null, creando OTRA factura. Asi
+  // aparecieron diez borradores del mismo documento en tres minutos.
+  // En un ref sobreviven al fallo y a cualquier orden de renderizado.
+  const identidad = useRef({ id: facturaId, number: null })
+
   // --- Carga inicial -------------------------------------------------
   useEffect(() => {
     let vivo = true
@@ -100,7 +109,11 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
       : Promise.resolve(borradorNuevo(ajustes, kind))
 
     promesa
-      .then((b) => vivo && setBorrador(b))
+      .then((b) => {
+        if (!vivo) return
+        identidad.current = { id: b.id, number: b.number }
+        setBorrador(b)
+      })
       .catch((e) => {
         registrarFallo('editor: no se pudo cargar la factura', e)
         vivo && setEstadoGuardado('error')
@@ -117,9 +130,21 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
 
   // --- Guardado ------------------------------------------------------
   const guardarAhora = useCallback(async (siguiente) => {
-    const aGuardar = siguiente ?? pendiente.current
-    if (!aGuardar) return null
-    if (guardando.current) return null
+    const base = siguiente ?? pendiente.current
+    if (!base) return null
+
+    // Ya hay un guardado en vuelo. No se descarta este: se deja pendiente
+    // para que lo recoja el siguiente ciclo. Descartarlo perdia el ultimo
+    // cambio escrito.
+    if (guardando.current) {
+      pendiente.current = base
+      return null
+    }
+
+    // La identidad manda siempre sobre lo que traiga el formulario: es la
+    // unica copia que no se pierde si un guardado anterior fallo.
+    const aGuardar = { ...base, id: identidad.current.id ?? base.id ?? null }
+    if (identidad.current.number) aGuardar.number = identidad.current.number
 
     // Un borrador completamente vacio no merece una fila en la base.
     if (!aGuardar.id && estaVacio(aGuardar)) return null
@@ -128,14 +153,16 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
     setEstadoGuardado('guardando')
     try {
       const guardada = await invoices.save(aGuardar)
-      // El id y el numero los asigna la base; hay que devolverlos al
-      // formulario o el siguiente autoguardado creara OTRA factura.
+      identidad.current = { id: guardada.id, number: guardada.number }
       setBorrador((b) => (b ? { ...b, id: guardada.id, number: guardada.number } : b))
       pendiente.current = null
       setEstadoGuardado('guardado')
       return guardada
     } catch (e) {
       registrarFallo('editor: no se pudo guardar la factura', e)
+      // El borrador se queda pendiente para reintentar: si se descartara,
+      // el siguiente guardado entraria sin id y duplicaria el documento.
+      pendiente.current = aGuardar
       setEstadoGuardado('error')
       return null
     } finally {

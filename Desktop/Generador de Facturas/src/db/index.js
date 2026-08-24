@@ -56,25 +56,47 @@ export async function execute(sql, params = []) {
 }
 
 /**
- * Ejecuta varias operaciones como una sola transaccion.
- * Si algo falla a la mitad, se deshace todo.
+ * Ejecuta varias sentencias como UNA transaccion real: entran todas o no
+ * entra ninguna.
  *
- * Es imprescindible al guardar una factura: la cabecera y sus lineas
- * tienen que entrar juntas o no entrar. Una factura con la mitad de sus
- * lineas es peor que ninguna factura.
+ * NO se puede hacer mandando 'BEGIN' … 'COMMIT' por la API JS de
+ * tauri-plugin-sql. El plugin abre un pool de hasta 10 conexiones y reparte
+ * cada `execute` por la que tenga libre, asi que el BEGIN se queda en una
+ * conexion, los INSERT van por otras y el COMMIT por una cuarta: no agrupa
+ * nada. Comprobado con una sonda en la app compilada — la fila insertada
+ * tras el BEGIN ya era visible desde otra conexion, y el ROLLBACK fallaba
+ * con "cannot rollback - no transaction is active".
+ *
+ * Costo real de ese fallo: facturas guardadas a medias, con su total en la
+ * cabecera y sin una sola linea, porque cada sentencia se confirmaba por su
+ * cuenta y bastaba que una fallara para dejar escrito todo lo anterior.
+ *
+ * La solucion es mandar el lote entero a Rust, que coge una unica conexion
+ * del mismo pool. En el navegador no hace falta: sql.js es una sola
+ * conexion en memoria y ahi BEGIN/COMMIT si funcionan.
+ *
+ * @param {Array<{sql: string, params?: any[]}>} sentencias
  */
-export async function transaction(fn) {
+export async function atomico(sentencias) {
+  const lote = sentencias.filter(Boolean)
+  if (lote.length === 0) return
+
+  if (enTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('ejecutar_atomico', {
+      sentencias: lote.map(({ sql, params = [] }) => ({ sql, params })),
+    })
+    return
+  }
+
   const db = await getDb()
   await db.execute('BEGIN')
   try {
-    const resultado = await fn(db)
+    for (const { sql, params = [] } of lote) await db.execute(sql, params)
     await db.execute('COMMIT')
-    return resultado
   } catch (error) {
     // El ROLLBACK va en su propio try: si tambien falla, el error que
-    // interesa es el ORIGINAL, no el del rollback. Sin esto, un fallo al
-    // deshacer sustituye la causa real por "cannot rollback" y deja el
-    // problema de verdad invisible.
+    // interesa es el ORIGINAL, no el del rollback.
     try {
       await db.execute('ROLLBACK')
     } catch (errorAlDeshacer) {

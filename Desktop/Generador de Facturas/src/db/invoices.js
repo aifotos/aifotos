@@ -1,4 +1,4 @@
-import { query, queryOne, execute, transaction } from './index.js'
+import { query, queryOne, execute, atomico } from './index.js'
 import { invoiceTotals, lineTotal } from '../lib/money.js'
 import * as clients from './clients.js'
 import * as services from './services.js'
@@ -201,82 +201,97 @@ export async function save(borrador) {
   // de alta al emitir, no ahora.
   const clienteExistente = client.name?.trim() ? await clients.getByName(client.name) : null
 
-  const idFactura = await transaction(async () => {
-    const campos = [
-      kind,
-      clienteExistente?.id ?? null,
-      client.name ?? '',
-      client.email ?? '',
-      client.phone ?? '',
-      client.address ?? '',
-      client.tax_id ?? '',
-      issue_date,
-      due_date,
-      status,
-      status === 'paid' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
-      totales.subtotal_cents,
-      discount_type,
-      discount_value,
-      totales.discount_cents,
-      totales.total_cents,
-      currency_symbol,
-      notes,
-      payment_details,
-    ]
+  // Las sentencias se preparan TODAS antes de tocar la base y se mandan en
+  // un solo lote atomico. Antes se ejecutaban una a una dentro de un BEGIN
+  // que no agrupaba nada (ver `atomico` en index.js), y bastaba que una
+  // fallara para dejar escrito todo lo anterior: cabecera con su total y
+  // cero lineas.
+  //
+  // Las lineas se enganchan a la factura por su `number`, que es UNIQUE, y
+  // no por el id: dentro de un lote no se puede leer el id que acaba de
+  // generar el INSERT anterior, y el numero ya lo conocemos aqui.
+  const porNumero = `(SELECT id FROM invoices WHERE number = ?)`
 
-    let invoiceId = id
-    if (id) {
-      await execute(
-        `UPDATE invoices SET
-           number = $1, kind = $2,
-           client_id = $3, client_name = $4, client_email = $5, client_phone = $6,
-           client_address = $7, client_tax_id = $8, issue_date = $9, due_date = $10,
-           status = $11, paid_at = COALESCE(paid_at, $12),
-           subtotal_cents = $13, discount_type = $14, discount_value = $15,
-           discount_cents = $16, total_cents = $17, currency_symbol = $18,
-           notes = $19, payment_details = $20
-         WHERE id = $21`,
-        [number, ...campos, id],
-      )
-    } else {
-      const res = await execute(
-        `INSERT INTO invoices
-           (number, kind, client_id, client_name, client_email, client_phone,
-            client_address, client_tax_id, issue_date, due_date, status, paid_at,
-            subtotal_cents, discount_type, discount_value, discount_cents,
-            total_cents, currency_symbol, notes, payment_details)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 $13, $14, $15, $16, $17, $18, $19, $20)`,
-        [number, ...campos],
-      )
-      invoiceId = res.lastInsertId
-    }
+  const campos = [
+    kind,
+    clienteExistente?.id ?? null,
+    client.name ?? '',
+    client.email ?? '',
+    client.phone ?? '',
+    client.address ?? '',
+    client.tax_id ?? '',
+    issue_date,
+    due_date,
+    status,
+    status === 'paid' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
+    totales.subtotal_cents,
+    discount_type,
+    discount_value,
+    totales.discount_cents,
+    totales.total_cents,
+    currency_symbol,
+    notes,
+    payment_details,
+  ]
 
-    // Lineas: se reemplazan enteras. Es mas simple y mas seguro que
-    // intentar casar cual linea cambio, y son pocas filas.
-    await execute(`DELETE FROM invoice_items WHERE invoice_id = $1`, [invoiceId])
-    for (let i = 0; i < lineas.length; i++) {
-      const it = lineas[i]
-      await execute(
-        `INSERT INTO invoice_items
-           (invoice_id, service_id, position, description, quantity_milli,
-            unit, unit_price_cents, line_total_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          invoiceId,
-          it.service_id,
-          i,
-          String(it.description ?? '').trim(),
-          it.quantity_milli,
-          it.unit ?? 'unidad',
-          it.unit_price_cents,
-          lineTotal(it.quantity_milli, it.unit_price_cents),
-        ],
-      )
-    }
+  const sentencias = []
 
-    return invoiceId
+  if (id) {
+    sentencias.push({
+      sql: `UPDATE invoices SET
+              number = ?, kind = ?,
+              client_id = ?, client_name = ?, client_email = ?, client_phone = ?,
+              client_address = ?, client_tax_id = ?, issue_date = ?, due_date = ?,
+              status = ?, paid_at = COALESCE(paid_at, ?),
+              subtotal_cents = ?, discount_type = ?, discount_value = ?,
+              discount_cents = ?, total_cents = ?, currency_symbol = ?,
+              notes = ?, payment_details = ?
+            WHERE id = ?`,
+      params: [number, ...campos, id],
+    })
+  } else {
+    sentencias.push({
+      sql: `INSERT INTO invoices
+              (number, kind, client_id, client_name, client_email, client_phone,
+               client_address, client_tax_id, issue_date, due_date, status, paid_at,
+               subtotal_cents, discount_type, discount_value, discount_cents,
+               total_cents, currency_symbol, notes, payment_details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [number, ...campos],
+    })
+  }
+
+  // Las lineas se reemplazan enteras: mas simple y mas seguro que intentar
+  // casar cual cambio, y son pocas filas.
+  sentencias.push({
+    sql: `DELETE FROM invoice_items WHERE invoice_id = ${porNumero}`,
+    params: [number],
   })
+
+  lineas.forEach((it, i) => {
+    sentencias.push({
+      sql: `INSERT INTO invoice_items
+              (invoice_id, service_id, position, description, quantity_milli,
+               unit, unit_price_cents, line_total_cents)
+            VALUES (${porNumero}, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        number,
+        it.service_id ?? null,
+        i,
+        String(it.description ?? '').trim(),
+        it.quantity_milli,
+        it.unit ?? 'unidad',
+        it.unit_price_cents,
+        lineTotal(it.quantity_milli, it.unit_price_cents),
+      ],
+    })
+  })
+
+  await atomico(sentencias)
+
+  const guardada = await queryOne(`SELECT id FROM invoices WHERE number = $1`, [number])
+  if (!guardada) throw new Error(`No se pudo guardar ${number}`)
+  const idFactura = guardada.id
 
   // Un documento que sale de borrador alimenta el CRM y el catalogo — sea
   // factura o cotizacion. Si le cotizas a alguien es un cliente real
