@@ -166,7 +166,7 @@ export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFac
             <EmptyState
               icon={FileText}
               title={`Todavía no hay ${v.seccion.toLowerCase()}`}
-              description={`Crea tu primera ${v.singular}. Los clientes y servicios que escribas se guardarán solos para la próxima.`}
+              description={`Crea tu primera ${v.singular}. Los clientes y servicios que crees quedan guardados para reutilizarlos.`}
               action={
                 <Button variant="primary" icon={Plus} onClick={onNuevaFactura}>
                   Crear la primera
@@ -281,12 +281,15 @@ export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFac
               'No se puede deshacer, y el número no se reutiliza.'
             : ''
         }
-      >
-        <Button onClick={() => setABorrar(null)}>Cancelar</Button>
-        <Button variant="danger" icon={Trash2} onClick={borrar}>
-          Eliminar
-        </Button>
-      </Modal>
+        acciones={
+          <>
+            <Button onClick={() => setABorrar(null)}>Cancelar</Button>
+            <Button variant="danger" icon={Trash2} onClick={borrar}>
+              Eliminar
+            </Button>
+          </>
+        }
+      />
     </>
   )
 }

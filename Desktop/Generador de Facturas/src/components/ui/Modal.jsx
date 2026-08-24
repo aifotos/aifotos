@@ -7,7 +7,15 @@ import { createPortal } from 'react-dom'
  * Va en un portal a `body` para que no lo recorte ningun panel con scroll,
  * y lleva `no-print` porque un dialogo abierto no debe salir en el PDF.
  */
-export default function Modal({ abierto, onCerrar, title, description, children }) {
+export default function Modal({
+  abierto,
+  onCerrar,
+  title,
+  description,
+  acciones,
+  ancho = 'max-w-sm',
+  children,
+}) {
   useEffect(() => {
     if (!abierto) return
     const alPulsar = (e) => e.key === 'Escape' && onCerrar()
@@ -27,15 +35,20 @@ export default function Modal({ abierto, onCerrar, title, description, children 
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-sm bg-surface rounded-2xl shadow-pop border border-line p-6"
+        className={`w-full ${ancho} bg-surface rounded-2xl shadow-pop border border-line p-6`}
       >
         <h2 className="text-base font-semibold text-ink">{title}</h2>
         {description && (
           <p className="mt-1.5 text-sm text-ink-soft leading-relaxed">{description}</p>
         )}
-        <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-          {children}
-        </div>
+
+        {children && <div className="mt-5">{children}</div>}
+
+        {acciones && (
+          <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            {acciones}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

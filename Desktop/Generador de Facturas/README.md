@@ -71,6 +71,44 @@ Generador de Facturas/
         └── lib.rs             Registro de plugins + migraciones de la BD
 ```
 
+### Clientes y servicios: se crean, no se adivinan
+
+En el editor, el cliente y cada linea se eligen de un desplegable
+(`components/ui/Picker.jsx`) o se crean con un formulario que los graba en
+el acto (`ClientDialog`, `ServiceDialog`).
+
+La primera version usaba campos de texto libre que se "aprendian" al
+emitir. Era comodo de escribir y malo de usar: no sabias si el cliente
+habia quedado guardado, y cualquier texto a medio teclear podia acabar en
+el catalogo. `aprender()` sigue existiendo —es idempotente y mantiene
+`times_used` al dia— pero ya no es la via principal por la que entran los
+datos.
+
+### Transacciones: `atomico`, nunca BEGIN desde JS
+
+**La API JS de tauri-plugin-sql NO permite transacciones.** Abre un pool de
+hasta 10 conexiones y reparte cada `execute` por la que tenga libre, asi
+que un `BEGIN` se queda en una conexion, los INSERT van por otras y el
+`COMMIT` por una cuarta: no agrupa nada, y el ROLLBACK falla con
+"cannot rollback - no transaction is active".
+
+Costo real cuando esto estaba mal: facturas con su total en la cabecera y
+CERO lineas, y un documento nuevo por cada autoguardado — diez en tres
+minutos.
+
+Para escribir varias sentencias juntas se usa `atomico([{sql, params}])`
+de `src/db/index.js`, que las manda al comando `ejecutar_atomico` de Rust.
+Ese comando coge el MISMO pool del plugin y pide una unica conexion con
+`pool.begin()`.
+
+Dentro de un lote no se puede leer el id que acaba de generar un INSERT,
+asi que las lineas se enganchan a su factura por `number`, que es UNIQUE.
+
+Ojo con el modo navegador: sql.js es UNA conexion en memoria, donde
+BEGIN/COMMIT si funcionan. Tapo este fallo durante todo el desarrollo.
+**Un fallo de concurrencia o de transacciones hay que probarlo en la app
+compilada, no en `npm run dev`.**
+
 ### Facturas y cotizaciones
 
 Son el mismo documento en la misma tabla, separados por la columna `kind`.

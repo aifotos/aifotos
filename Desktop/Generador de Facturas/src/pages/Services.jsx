@@ -6,8 +6,8 @@ import { formatMoney } from '../lib/money.js'
 import * as services from '../db/services.js'
 
 /**
- * Catalogo de servicios. Igual que los clientes: se autoalimenta desde las
- * facturas y recuerda siempre el ultimo precio que cobraste.
+ * Catalogo de servicios. Igual que los clientes: se crean desde el selector
+ * de cada linea de factura, y recuerdan el ultimo precio que cobraste.
  */
 export default function Services({ moneda = 'RD$' }) {
   const [lista, setLista] = useState([])
@@ -30,7 +30,7 @@ export default function Services({ moneda = 'RD$' }) {
             <EmptyState
               icon={Package}
               title="El catálogo está vacío"
-              description="Escribe un servicio en una factura con su precio y quedará guardado aquí para la próxima vez."
+              description="Se crean desde la factura: pulsa «Crear servicio nuevo» en una línea y quedará guardado aquí."
             />
           ) : (
             <div className="divide-y divide-line">

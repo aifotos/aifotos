@@ -171,12 +171,15 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
         onCerrar={() => setPreguntarEmitir(false)}
         title={`Esta ${v.singular} aún es un borrador`}
         description={`Si la exportas ahora, el PDF dirá «BORRADOR» en lugar de un número. ¿Quieres marcarla como ${v.verboEmitido} primero?`}
-      >
-        <Button onClick={exportarComoBorrador}>Exportar como borrador</Button>
-        <Button variant="primary" icon={Send} onClick={emitirYExportar}>
-          {v.accionEmitir} y exportar
-        </Button>
-      </Modal>
+        acciones={
+          <>
+            <Button onClick={exportarComoBorrador}>Exportar como borrador</Button>
+            <Button variant="primary" icon={Send} onClick={emitirYExportar}>
+              {v.accionEmitir} y exportar
+            </Button>
+          </>
+        }
+      />
 
       {/* Formulario | Vista previa */}
       <div className="flex-1 min-h-0 flex">

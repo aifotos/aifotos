@@ -42,6 +42,10 @@ export function getById(id) {
   return queryOne(`SELECT * FROM services WHERE id = $1`, [id])
 }
 
+export function getByName(name) {
+  return queryOne(`SELECT * FROM services WHERE name_key = $1`, [nameKey(name)])
+}
+
 /**
  * Guarda en silencio un servicio escrito en una factura.
  *

@@ -70,16 +70,29 @@ class BrowserDatabase {
 }
 
 /**
- * sql.js liga por nombre ($1, $2...); tauri-plugin-sql recibe un array.
- * Traduce lo segundo a lo primero.
+ * Prepara los parametros para sql.js.
+ *
+ * En el codigo conviven los dos estilos que admite SQLite, y cada uno se
+ * liga de una forma distinta:
+ *
+ *   $1, $2…   consultas escritas a mano en src/db/  -> objeto por nombre
+ *   ?         sentencias generadas en lote           -> array posicional
+ *
+ * sqlx (la app nativa) acepta los dos sin mas; sql.js no. Mezclarlos sin
+ * distinguir hacia que los `?` no ligaran nada y todo entrara como NULL.
  */
 function bindings(sql, params) {
+  const conNombre = sql.match(/\$\d+/g)
+  if (!conNombre) {
+    return params.map((v) => (v === undefined ? null : v))
+  }
+
   const nombres = {}
   params.forEach((valor, i) => {
     nombres[`$${i + 1}`] = valor === undefined ? null : valor
   })
   // Solo pasa los parametros que la consulta realmente usa.
-  const usados = new Set(sql.match(/\$\d+/g) ?? [])
+  const usados = new Set(conNombre)
   return Object.fromEntries(Object.entries(nombres).filter(([k]) => usados.has(k)))
 }
 

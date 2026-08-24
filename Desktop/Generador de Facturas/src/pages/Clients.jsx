@@ -5,9 +5,9 @@ import EmptyState from '../components/ui/EmptyState.jsx'
 import * as clients from '../db/clients.js'
 
 /**
- * Clientes. No hay boton de "nuevo cliente" a proposito: los clientes se
- * crean solos al escribirlos en una factura. Esta pantalla es para
- * consultarlos y corregir un dato, no para darlos de alta a mano.
+ * Clientes. No hay boton de "nuevo cliente" a proposito: se crean desde el
+ * selector de cliente de la factura, que es donde de verdad los necesitas.
+ * Esta pantalla es para consultarlos.
  */
 export default function Clients() {
   const [lista, setLista] = useState([])
@@ -30,7 +30,7 @@ export default function Clients() {
             <EmptyState
               icon={Users}
               title="Todavía no hay clientes"
-              description="Se guardan solos: escribe el nombre de un cliente nuevo en una factura y aparecerá aquí."
+              description="Se crean desde la factura: pulsa «Crear cliente nuevo» en el selector de cliente y aparecerá aquí."
             />
           ) : (
             <div className="divide-y divide-line">

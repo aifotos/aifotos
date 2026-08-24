@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import Autocomplete from '../ui/Autocomplete.jsx'
+import Picker from '../ui/Picker.jsx'
 import Button from '../ui/Button.jsx'
+import ServiceDialog from './ServiceDialog.jsx'
 import { formatMoney, formatAmount, formatQty, lineTotal, toCents, toMilli } from '../../lib/money.js'
 import { lineaVacia } from '../../hooks/useInvoiceDraft.js'
 import * as services from '../../db/services.js'
@@ -15,12 +16,18 @@ const celda =
 /**
  * Las lineas de la factura.
  *
- * Se parece a una tabla de un documento, no a un formulario: los campos no
- * tienen borde hasta que pasas por encima. Es lo que hace que llenar la
- * factura se sienta como escribir sobre un papel y no como rellenar un alta.
+ * Cada linea elige un servicio del catalogo o crea uno nuevo en el acto.
+ * Antes era texto libre que se "aprendia" al emitir, y eso tenia dos
+ * problemas: no sabias si el servicio habia quedado guardado, y cualquier
+ * texto a medio escribir podia acabar en el catalogo.
+ *
+ * La cantidad y el precio si se editan a mano por linea: el precio del
+ * catalogo es una referencia, no una atadura.
  */
 export default function ItemsTable({ items, moneda, onChange }) {
-  const buscar = useCallback((t) => services.search(t, 6), [])
+  const buscar = useCallback((t) => services.search(t, 20), [])
+  const [dialogo, setDialogo] = useState(null) // { key, servicio, nombreInicial }
+  const [recargar, setRecargar] = useState(0)
 
   const modificar = (key, cambios) =>
     onChange(items.map((it) => (it.key === key ? { ...it, ...cambios } : it)))
@@ -57,7 +64,9 @@ export default function ItemsTable({ items, moneda, onChange }) {
               item={it}
               moneda={moneda}
               buscar={buscar}
+              recargar={recargar}
               onModificar={(c) => modificar(it.key, c)}
+              onCrear={(texto) => setDialogo({ key: it.key, servicio: null, nombreInicial: texto })}
               onQuitar={() => quitar(it.key)}
               puedeQuitar={items.length > 1 || !!it.description?.trim()}
             />
@@ -68,11 +77,28 @@ export default function ItemsTable({ items, moneda, onChange }) {
       <Button size="sm" variant="ghost" icon={Plus} onClick={agregar}>
         Añadir línea
       </Button>
+
+      <ServiceDialog
+        abierto={!!dialogo}
+        servicio={dialogo?.servicio ?? null}
+        nombreInicial={dialogo?.nombreInicial ?? ''}
+        moneda={moneda}
+        onCerrar={() => setDialogo(null)}
+        onGuardado={(s) => {
+          modificar(dialogo.key, {
+            service_id: s.id,
+            description: s.name,
+            unit: s.unit,
+            unit_price_cents: s.unit_price_cents,
+          })
+          setRecargar((n) => n + 1)
+        }}
+      />
     </section>
   )
 }
 
-function ItemRow({ item, moneda, buscar, onModificar, onQuitar, puedeQuitar }) {
+function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onQuitar, puedeQuitar }) {
   // Los campos numericos se editan como texto mientras tienen el foco:
   // si se reformatearan en cada tecla, escribir "1500.50" seria imposible
   // (al teclear el punto, el valor volveria a "1500").
@@ -94,13 +120,15 @@ function ItemRow({ item, moneda, buscar, onModificar, onQuitar, puedeQuitar }) {
 
   return (
     <div className="grid grid-cols-[1fr_5rem_7rem_7rem_2.25rem] gap-2 px-3 py-1.5 items-center group">
-      <Autocomplete
-        value={item.description}
-        onChange={(v) => onModificar({ description: v, service_id: null })}
-        onElegir={elegirServicio}
+      <Picker
+        valor={item.description ? { name: item.description } : null}
         buscar={buscar}
-        placeholder="Descripción del servicio"
-        className={celda}
+        recargar={recargar}
+        onElegir={elegirServicio}
+        onCrear={onCrear}
+        placeholder="Elige un servicio"
+        etiquetaCrear="Crear servicio nuevo"
+        className="h-9 rounded-lg border-transparent hover:border-line"
       >
         {(s) => (
           <div className="flex items-baseline justify-between gap-3">
@@ -110,7 +138,7 @@ function ItemRow({ item, moneda, buscar, onModificar, onQuitar, puedeQuitar }) {
             </span>
           </div>
         )}
-      </Autocomplete>
+      </Picker>
 
       <input
         value={editandoCant ?? formatQty(item.quantity_milli)}
