@@ -92,7 +92,16 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
     status: 'pending',
     discount_type: cot.discount_type,
     discount_value: cot.discount_value,
-    notes: cot.notes,
+    // Las notas NO se heredan. Son de la cotizacion ("Precios validos por
+    // 30 dias", condiciones de la oferta...) y en una factura ya emitida no
+    // pintan nada: en el mejor caso sobran y en el peor confunden al cliente,
+    // que puede leer una condicion de presupuesto como una condicion de pago.
+    // La factura arranca con el pie por defecto, igual que cualquier otra.
+    notes: ajustes.default_notes ?? '',
+    // Los datos de pago SI se heredan: dicen como cobrarte, que es
+    // exactamente igual de valido en los dos documentos, y si los cambiaste
+    // en la cotizacion (otra cuenta para ese cliente) esa decision debe
+    // sobrevivir a la conversion.
     payment_details: cot.payment_details,
     currency_symbol: cot.currency_symbol,
   })

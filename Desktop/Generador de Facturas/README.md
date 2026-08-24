@@ -113,9 +113,17 @@ que salio.
 Al convertir, la cotizacion **no se transforma ni se borra**: se queda
 marcada como aceptada y enlazada a la factura que salio de ella
 (`converted_to_id`), que ademas es el seguro que impide convertirla dos
-veces. La factura nace con su `FAC-` propio y con tu plazo de pago
-habitual contado desde hoy — no hereda la fecha de validez de la
-cotizacion, que suele estar ya casi agotada cuando el cliente acepta.
+veces.
+
+Que hereda la factura de la cotizacion y que no:
+
+| | |
+|---|---|
+| Cliente y lineas | se heredan |
+| Descuento y moneda | se heredan |
+| Datos de pago | se heredan — dicen como cobrarte, y si los cambiaste para ese cliente esa decision debe sobrevivir |
+| Vencimiento | **no** — usa tu plazo de pago desde hoy. La validez de la cotizacion suele estar agotada cuando el cliente acepta |
+| Notas | **no** — son de la oferta ("precios validos por 30 dias"). En una factura sobran, y el cliente puede leerlas como una condicion de pago. Arranca con el pie por defecto de Ajustes |
 
 ### Regla de oro de las migraciones
 
