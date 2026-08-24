@@ -5,10 +5,15 @@ import Sidebar from './Sidebar.jsx'
  * propio. El scroll vive en el contenido, no en el body, para que la barra
  * lateral y la cabecera de la seccion no se muevan.
  */
-export default function AppShell({ seccion, onNavegar, onNuevaFactura, children }) {
+export default function AppShell({ seccion, onNavegar, onNuevaFactura, etiquetaNuevo, children }) {
   return (
     <div className="h-full flex overflow-hidden">
-      <Sidebar actual={seccion} onNavegar={onNavegar} onNuevaFactura={onNuevaFactura} />
+      <Sidebar
+        actual={seccion}
+        onNavegar={onNavegar}
+        onNuevaFactura={onNuevaFactura}
+        etiquetaNuevo={etiquetaNuevo}
+      />
       <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
     </div>
   )

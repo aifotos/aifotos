@@ -58,7 +58,7 @@ export function MenuItem({ icon: Icon, children, peligroso = false, ...props }) 
     <button
       role="menuitem"
       className={`w-full h-9 px-3 flex items-center gap-2.5 text-left text-sm
-        transition-colors
+        transition-colors disabled:opacity-40 disabled:pointer-events-none
         ${peligroso
           ? 'text-overdue-ink hover:bg-overdue-bg'
           : 'text-ink hover:bg-canvas'}`}

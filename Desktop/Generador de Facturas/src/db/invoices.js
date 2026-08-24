@@ -10,6 +10,14 @@ import * as settings from './settings.js'
  * servicios) como una sola transaccion atomica.
  */
 
+/**
+ * Estados, separados por tipo de documento.
+ *
+ * No comparten vocabulario a proposito: "Pagada" no significa nada en una
+ * cotizacion y "Aceptada" no significa nada en una factura. La base
+ * tambien lo impide con un CHECK, para que un estado cruzado no pueda
+ * entrar ni por error de la app.
+ */
 export const ESTADOS = {
   draft: { label: 'Borrador', tone: 'draft' },
   pending: { label: 'Pendiente', tone: 'pending' },
@@ -17,15 +25,37 @@ export const ESTADOS = {
   cancelled: { label: 'Anulada', tone: 'draft' },
 }
 
+export const ESTADOS_COTIZACION = {
+  draft: { label: 'Borrador', tone: 'draft' },
+  sent: { label: 'Enviada', tone: 'pending' },
+  accepted: { label: 'Aceptada', tone: 'paid' },
+  rejected: { label: 'Rechazada', tone: 'draft' },
+}
+
+/** Los estados que corresponden a un tipo de documento. */
+export function estadosDe(kind) {
+  return kind === 'quote' ? ESTADOS_COTIZACION : ESTADOS
+}
+
+/** La vista desde la que se lee cada tipo. Nunca la tabla `invoices`. */
+function vista(kind) {
+  return kind === 'quote' ? 'cotizaciones' : 'facturas'
+}
+
 // ------------------------------------------------------------- CONSULTAS
 
-/** Listado del Dashboard, con filtro opcional por estado y busqueda. */
-export function list({ status = null, search = '', limit = 200 } = {}) {
+/**
+ * Listado del Dashboard, con filtro opcional por estado y busqueda.
+ *
+ * Lee de la vista, no de la tabla: asi una cotizacion no puede aparecer
+ * jamas en el listado de facturas por un filtro olvidado.
+ */
+export function list({ kind = 'invoice', status = null, search = '', limit = 200 } = {}) {
   const t = search.trim().toLowerCase()
   return query(
     `SELECT i.*,
             (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS item_count
-     FROM invoices i
+     FROM ${vista(kind)} i
      WHERE ($1 IS NULL OR i.status = $1)
        AND ($2 = '' OR lower(i.number) LIKE $3 OR lower(i.client_name) LIKE $3)
      ORDER BY i.issue_date DESC, i.id DESC
@@ -56,15 +86,58 @@ export function summary() {
        COALESCE(SUM(CASE WHEN status = 'pending'
                           AND due_date IS NOT NULL
                           AND due_date < date('now') THEN total_cents END), 0) AS vencido
-     FROM invoices
+     FROM facturas
      WHERE status != 'cancelled'`,
   )
 }
 
-/** Una factura pendiente cuya fecha de vencimiento ya paso. */
+/**
+ * Resumen del panel de cotizaciones.
+ *
+ * "Valor cotizado" cuenta SOLO las que siguen vigentes. Una cotizacion
+ * caducada sigue con status 'sent' en la base, pero meterla en esa cifra
+ * seria presentar como cartera viva un presupuesto que ya expiro — la
+ * misma clase de error que contar cotizaciones como dinero por cobrar,
+ * solo que mas pequeno. Las caducadas tienen su propia tarjeta.
+ */
+export function summaryQuotes() {
+  const vigente = `(due_date IS NULL OR due_date >= date('now'))`
+  const caducada = `(due_date IS NOT NULL AND due_date < date('now'))`
+  return queryOne(
+    `SELECT
+       COUNT(CASE WHEN status = 'sent' AND ${vigente} THEN 1 END) AS n_enviadas,
+       COUNT(CASE WHEN status = 'accepted' THEN 1 END)            AS n_aceptadas,
+       COUNT(CASE WHEN status = 'draft'    THEN 1 END)            AS n_borradores,
+       COALESCE(SUM(CASE WHEN status = 'sent' AND ${vigente}
+                         THEN total_cents END), 0)                AS valor_enviado,
+       COUNT(CASE WHEN status = 'sent' AND ${caducada} THEN 1 END) AS n_caducadas
+     FROM cotizaciones`,
+  )
+}
+
+/**
+ * Una factura pendiente cuya fecha de vencimiento ya paso: es una deuda.
+ *
+ * Distinto de una cotizacion caducada (`estaCaducada`), que no es dinero
+ * que te deban sino un presupuesto que dejo de estar vigente. Comparten
+ * el campo `due_date` pero no significan lo mismo, y por eso no comparten
+ * ni funcion ni color.
+ */
 export function isOverdue(invoice) {
+  if (invoice.kind === 'quote') return false
   if (invoice.status !== 'pending' || !invoice.due_date) return false
   return invoice.due_date < new Date().toISOString().slice(0, 10)
+}
+
+/** Una cotizacion enviada cuya fecha de validez ya paso. */
+export function estaCaducada(doc) {
+  if (doc.kind !== 'quote' || doc.status !== 'sent' || !doc.due_date) return false
+  return doc.due_date < new Date().toISOString().slice(0, 10)
+}
+
+/** ¿Esta cotizacion ya se convirtio en factura? */
+export function estaConvertida(doc) {
+  return doc.kind === 'quote' && doc.converted_to_id != null
 }
 
 // -------------------------------------------------------------- GUARDADO
@@ -86,6 +159,7 @@ export function isOverdue(invoice) {
 export async function save(borrador) {
   const {
     id = null,
+    kind = 'invoice',
     client = {},
     items = [],
     issue_date,
@@ -109,15 +183,18 @@ export async function save(borrador) {
   // hacen su propio UPDATE condicional y no deben deshacerse si la factura
   // falla (es preferible un hueco que un numero duplicado).
   //
-  //   borrador nuevo      -> BOR-0003 (interno, no consume numeracion fiscal)
-  //   borrador que sigue  -> conserva su BOR-0003
-  //   al emitir           -> se reserva el FAC-0007 real
-  //   factura ya emitida  -> nunca cambia de numero
+  //   borrador nuevo        -> BOR-0003 (interno, no gasta correlativo)
+  //   borrador que sigue     -> conserva su BOR-0003
+  //   al emitir una factura  -> se reserva el FAC-0007 fiscal
+  //   al enviar una cotiz.   -> se reserva el COT-0003, secuencia aparte
+  //   documento ya emitido   -> nunca cambia de numero
   let number = borrador.number ?? null
   if (status === 'draft') {
     if (!number) number = await settings.consumeDraftNumber()
   } else if (settings.esBorrador(number)) {
-    number = await settings.consumeNumber()
+    number = kind === 'quote'
+      ? await settings.consumeQuoteNumber()
+      : await settings.consumeNumber()
   }
 
   // El cliente solo se enlaza si YA existe en el catalogo. Uno nuevo se da
@@ -126,6 +203,7 @@ export async function save(borrador) {
 
   const idFactura = await transaction(async () => {
     const campos = [
+      kind,
       clienteExistente?.id ?? null,
       client.name ?? '',
       client.email ?? '',
@@ -150,25 +228,25 @@ export async function save(borrador) {
     if (id) {
       await execute(
         `UPDATE invoices SET
-           number = $1,
-           client_id = $2, client_name = $3, client_email = $4, client_phone = $5,
-           client_address = $6, client_tax_id = $7, issue_date = $8, due_date = $9,
-           status = $10, paid_at = COALESCE(paid_at, $11),
-           subtotal_cents = $12, discount_type = $13, discount_value = $14,
-           discount_cents = $15, total_cents = $16, currency_symbol = $17,
-           notes = $18, payment_details = $19
-         WHERE id = $20`,
+           number = $1, kind = $2,
+           client_id = $3, client_name = $4, client_email = $5, client_phone = $6,
+           client_address = $7, client_tax_id = $8, issue_date = $9, due_date = $10,
+           status = $11, paid_at = COALESCE(paid_at, $12),
+           subtotal_cents = $13, discount_type = $14, discount_value = $15,
+           discount_cents = $16, total_cents = $17, currency_symbol = $18,
+           notes = $19, payment_details = $20
+         WHERE id = $21`,
         [number, ...campos, id],
       )
     } else {
       const res = await execute(
         `INSERT INTO invoices
-           (number, client_id, client_name, client_email, client_phone,
+           (number, kind, client_id, client_name, client_email, client_phone,
             client_address, client_tax_id, issue_date, due_date, status, paid_at,
             subtotal_cents, discount_type, discount_value, discount_cents,
             total_cents, currency_symbol, notes, payment_details)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                 $12, $13, $14, $15, $16, $17, $18, $19)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                 $13, $14, $15, $16, $17, $18, $19, $20)`,
         [number, ...campos],
       )
       invoiceId = res.lastInsertId
@@ -200,7 +278,10 @@ export async function save(borrador) {
     return invoiceId
   })
 
-  // Una factura emitida si alimenta el CRM y el catalogo.
+  // Un documento que sale de borrador alimenta el CRM y el catalogo — sea
+  // factura o cotizacion. Si le cotizas a alguien es un cliente real
+  // aunque todavia no te haya dicho que si, y no tiene sentido volver a
+  // teclear sus datos cuando acepte.
   if (status !== 'draft') await aprender(idFactura)
 
   return getFull(idFactura)
@@ -260,6 +341,9 @@ async function aprender(invoiceId) {
  * refleja lo que hay. Son dos UPDATE sobre unas pocas filas.
  */
 export async function recomputarUso() {
+  // Cuenta facturas Y cotizaciones: para ordenar el autocompletado importa
+  // con quien trabajas, no si el papel era fiscal. (Aqui si se lee la
+  // tabla cruda a proposito, y es el unico sitio donde pasa.)
   await execute(
     `UPDATE clients SET
        times_used = (SELECT COUNT(*) FROM invoices
@@ -289,19 +373,28 @@ export async function recomputarUso() {
  * 'BOR-0003' y recibe su numero fiscal definitivo.
  */
 export async function setStatus(id, status) {
-  const actual = await queryOne(`SELECT number, status FROM invoices WHERE id = $1`, [id])
+  const actual = await queryOne(
+    `SELECT number, status, kind FROM invoices WHERE id = $1`,
+    [id],
+  )
   if (!actual) return null
+
+  if (!estadosDe(actual.kind)[status]) {
+    throw new Error(`Estado "${status}" no valido para un documento de tipo ${actual.kind}`)
+  }
 
   const number =
     status !== 'draft' && settings.esBorrador(actual.number)
-      ? await settings.consumeNumber()
+      ? actual.kind === 'quote'
+        ? await settings.consumeQuoteNumber()
+        : await settings.consumeNumber()
       : actual.number
 
   await execute(
     `UPDATE invoices SET
        number  = $1,
        status  = $2,
-       paid_at = CASE WHEN $2 = 'paid'
+       paid_at = CASE WHEN $2 IN ('paid', 'accepted')
                       THEN COALESCE(paid_at, datetime('now'))
                       ELSE NULL END
      WHERE id = $3`,

@@ -7,6 +7,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 const V1_ESQUEMA_INICIAL: &str = include_str!("../migrations/001_esquema_inicial.sql");
 const V2_NUMERACION_BORRADORES: &str =
     include_str!("../migrations/002_numeracion_de_borradores.sql");
+const V3_COTIZACIONES: &str = include_str!("../migrations/003_cotizaciones.sql");
 
 /// Migraciones de la base de datos local (SQLite).
 ///
@@ -31,6 +32,12 @@ fn migrations() -> Vec<Migration> {
             version: 2,
             description: "secuencia aparte para los numeros de borrador",
             sql: V2_NUMERACION_BORRADORES,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 3,
+            description: "cotizaciones: columna kind, estados propios y vistas separadas",
+            sql: V3_COTIZACIONES,
             kind: MigrationKind::Up,
         },
     ]

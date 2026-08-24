@@ -138,14 +138,17 @@ export function unarchive(id) {
   return execute(`UPDATE clients SET archived = 0 WHERE id = $1`, [id])
 }
 
-/** Cuantas facturas tiene y cuanto suma — para la ficha del cliente. */
+/**
+ * Cuantas facturas tiene y cuanto suma — para la ficha del cliente.
+ * Lee de la vista `facturas`: lo cotizado y no aceptado no es facturacion.
+ */
 export function stats(id) {
   return queryOne(
     `SELECT
        COUNT(*)                                                    AS total_facturas,
        COALESCE(SUM(total_cents), 0)                               AS total_facturado,
        COALESCE(SUM(CASE WHEN status = 'pending' THEN total_cents END), 0) AS total_pendiente
-     FROM invoices
+     FROM facturas
      WHERE client_id = $1 AND status != 'cancelled'`,
     [id],
   )

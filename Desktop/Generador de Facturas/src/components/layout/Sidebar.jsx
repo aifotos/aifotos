@@ -1,8 +1,9 @@
-import { FileText, Users, Package, Settings, Plus } from 'lucide-react'
+import { FileText, FileSignature, Users, Package, Settings, Plus } from 'lucide-react'
 import Button from '../ui/Button.jsx'
 
 const SECCIONES = [
   { id: 'invoices', label: 'Facturas', icon: FileText },
+  { id: 'quotes', label: 'Cotizaciones', icon: FileSignature },
   { id: 'clients', label: 'Clientes', icon: Users },
   { id: 'services', label: 'Servicios', icon: Package },
   { id: 'settings', label: 'Ajustes', icon: Settings },
@@ -17,7 +18,7 @@ const SECCIONES = [
  * sitio y el atributo convierte esa franja en zona de arrastre, para que la
  * ventana se pueda mover como cualquier otra app.
  */
-export default function Sidebar({ actual, onNavegar, onNuevaFactura }) {
+export default function Sidebar({ actual, onNavegar, onNuevaFactura, etiquetaNuevo = 'Nueva factura' }) {
   return (
     <aside className="w-56 shrink-0 bg-canvas border-r border-line flex flex-col">
       {/* Hueco para los semaforos de macOS. El arrastre lo gestiona
@@ -32,7 +33,7 @@ export default function Sidebar({ actual, onNavegar, onNuevaFactura }) {
           className="w-full"
           onClick={onNuevaFactura}
         >
-          Nueva factura
+          {etiquetaNuevo}
         </Button>
       </div>
 

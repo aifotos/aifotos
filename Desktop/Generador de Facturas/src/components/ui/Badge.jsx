@@ -1,11 +1,18 @@
-import { ESTADOS } from '../../db/invoices.js'
+import { estadosDe } from '../../db/invoices.js'
 
 /**
- * Etiqueta de estado de una factura.
+ * Etiqueta de estado de un documento.
  *
- * "Vencida" no es un estado guardado en la base: es una factura `pending`
- * cuya fecha de vencimiento ya paso. Se calcula al mostrarla, para que no
- * haya que ir cambiando filas cada medianoche.
+ * Tres de las etiquetas no son estados guardados, sino situaciones que se
+ * calculan al mostrarlas, para no tener que ir cambiando filas cada
+ * medianoche ni duplicar informacion que ya esta en los datos:
+ *
+ *   Vencida    factura pendiente cuya fecha de pago ya paso
+ *   Caducada   cotizacion enviada que dejo de estar vigente
+ *   Convertida cotizacion que ya tiene una factura enlazada
+ *
+ * Vencida y Caducada NO comparten color a proposito: una es una deuda que
+ * te deben y la otra un presupuesto que expiro sin mas.
  */
 const TONOS = {
   paid: 'bg-paid-bg text-paid-ink',
@@ -14,9 +21,28 @@ const TONOS = {
   draft: 'bg-draft-bg text-draft-ink',
 }
 
-export default function Badge({ status, overdue = false, className = '' }) {
-  const tono = overdue ? 'overdue' : (ESTADOS[status]?.tone ?? 'draft')
-  const texto = overdue ? 'Vencida' : (ESTADOS[status]?.label ?? status)
+export default function Badge({
+  status,
+  kind = 'invoice',
+  overdue = false,
+  expired = false,
+  converted = false,
+  className = '',
+}) {
+  const estados = estadosDe(kind)
+  let tono = estados[status]?.tone ?? 'draft'
+  let texto = estados[status]?.label ?? status
+
+  if (converted) {
+    tono = 'paid'
+    texto = 'Convertida'
+  } else if (overdue) {
+    tono = 'overdue'
+    texto = 'Vencida'
+  } else if (expired) {
+    tono = 'draft'
+    texto = 'Caducada'
+  }
 
   return (
     <span

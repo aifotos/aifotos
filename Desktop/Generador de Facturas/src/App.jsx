@@ -8,6 +8,7 @@ import Services from './pages/Services.jsx'
 import Settings from './pages/Settings.jsx'
 import InvoiceEditor from './pages/InvoiceEditor.jsx'
 import * as settings from './db/settings.js'
+import { doc as vocabulario } from './lib/documentos.js'
 import { registrarFallo } from './lib/logging.js'
 
 /**
@@ -19,8 +20,8 @@ import { registrarFallo } from './lib/logging.js'
  */
 export default function App() {
   const [seccion, setSeccion] = useState('invoices')
-  // `null` = no hay editor abierto. Un id numerico abre esa factura;
-  // 'nueva' abre un borrador en blanco.
+  // `null` = no hay editor abierto. Si no, { id, kind }: un id numerico abre
+  // ese documento y 'nuevo' abre un borrador en blanco del tipo indicado.
   const [editando, setEditando] = useState(null)
   const [ajustes, setAjustes] = useState(null)
   const [error, setError] = useState(null)
@@ -60,8 +61,12 @@ export default function App() {
 
   const moneda = ajustes.currency_symbol
 
-  const nuevaFactura = () => setEditando('nueva')
-  const abrirFactura = (factura) => setEditando(factura.id)
+  // La seccion activa decide que se crea al pulsar "Nueva…".
+  const kindActual = seccion === 'quotes' ? 'quote' : 'invoice'
+  const v = vocabulario(kindActual)
+
+  const nuevoDocumento = () => setEditando({ id: 'nuevo', kind: kindActual })
+  const abrirDocumento = (doc) => setEditando({ id: doc.id, kind: doc.kind ?? 'invoice' })
 
   // El editor ocupa toda la ventana: no comparte sitio con la barra lateral,
   // porque al escribir una factura no quieres nada mas en pantalla.
@@ -70,15 +75,23 @@ export default function App() {
       <>
         <DragStrip />
         <InvoiceEditor
-          // Al cambiar de factura hay que reiniciar el estado del formulario.
-          // Sin esta `key`, React reutilizaria el componente y arrastraria el
-          // borrador anterior a la factura recien abierta.
-          key={editando}
+          // Al cambiar de documento hay que reiniciar el estado del
+          // formulario. Sin esta `key`, React reutilizaria el componente y
+          // arrastraria el borrador anterior al recien abierto.
+          key={`${editando.kind}-${editando.id}`}
           ajustes={ajustes}
-          facturaId={editando === 'nueva' ? null : editando}
+          kind={editando.kind}
+          facturaId={editando.id === 'nuevo' ? null : editando.id}
           onSalir={() => {
             setEditando(null)
             // Los ajustes pueden haber cambiado (numeracion consumida).
+            settings.get().then(setAjustes).catch(() => {})
+          }}
+          // Al convertir una cotizacion, saltamos a la factura resultante:
+          // es lo que quieres mirar justo despues.
+          onAbrirFactura={(factura) => {
+            setSeccion('invoices')
+            setEditando({ id: factura.id, kind: 'invoice' })
             settings.get().then(setAjustes).catch(() => {})
           }}
         />
@@ -87,13 +100,22 @@ export default function App() {
   }
 
   return (
-    <AppShell seccion={seccion} onNavegar={setSeccion} onNuevaFactura={nuevaFactura}>
+    <AppShell
+      seccion={seccion}
+      onNavegar={setSeccion}
+      onNuevaFactura={nuevoDocumento}
+      etiquetaNuevo={v.nuevo}
+    >
       <DragStrip />
-      {seccion === 'invoices' && (
+      {(seccion === 'invoices' || seccion === 'quotes') && (
         <Dashboard
+          // Remonta el listado al cambiar de seccion, para que no se quede
+          // un instante con las filas del tipo anterior.
+          key={kindActual}
+          kind={kindActual}
           moneda={moneda}
-          onNuevaFactura={nuevaFactura}
-          onAbrirFactura={abrirFactura}
+          onNuevaFactura={nuevoDocumento}
+          onAbrirFactura={abrirDocumento}
         />
       )}
       {seccion === 'clients' && <Clients />}

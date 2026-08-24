@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, Cloud, CloudOff, Loader2, Printer, Send } from 'lucide-react'
+import { ArrowLeft, Check, Cloud, CloudOff, FileText, Loader2, Printer, Send } from 'lucide-react'
 import Button from '../components/ui/Button.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Field, { inputClass, textareaClass } from '../components/ui/Field.jsx'
@@ -12,21 +12,25 @@ import PrintArea from '../components/pdf/PrintArea.jsx'
 import useInvoiceDraft from '../hooks/useInvoiceDraft.js'
 import usePrint from '../hooks/usePrint.js'
 import { esBorrador } from '../db/settings.js'
+import { doc as vocabulario } from '../lib/documentos.js'
 import { addDays } from '../lib/dates.js'
 import * as invoices from '../db/invoices.js'
+import * as quotes from '../db/quotes.js'
 
 /**
  * Editor de facturas a pantalla completa: formulario a la izquierda,
  * el documento tal cual saldra impreso a la derecha, actualizandose
  * mientras escribes.
  */
-export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
+export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', onSalir, onAbrirFactura }) {
   const { borrador, actualizar, guardarAhora, totales, estadoGuardado, cargando } =
-    useInvoiceDraft({ ajustes, facturaId })
+    useInvoiceDraft({ ajustes, facturaId, kind })
   const [emitiendo, setEmitiendo] = useState(false)
   const [preguntarEmitir, setPreguntarEmitir] = useState(false)
+  const [convirtiendo, setConvirtiendo] = useState(false)
   const documento = useRef(null)
   const imprimir = usePrint()
+  const v = vocabulario(kind)
 
   if (cargando || !borrador) {
     return (
@@ -37,13 +41,14 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
   }
 
   const sinEmitir = esBorrador(borrador.number)
+  const yaConvertida = quotes.estaConvertida(borrador)
 
   async function emitir() {
     setEmitiendo(true)
     try {
-      const guardada = await guardarAhora({ ...borrador, status: 'pending' })
+      const guardada = await guardarAhora({ ...borrador, status: v.estadoAlEmitir })
       if (guardada) {
-        actualizar({ status: 'pending', number: guardada.number })
+        actualizar({ status: v.estadoAlEmitir, number: guardada.number })
       }
     } finally {
       setEmitiendo(false)
@@ -77,10 +82,23 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
     await imprimir()
   }
 
-  async function marcarPagada() {
+  async function cerrar() {
     if (!borrador.id) return
-    const actualizada = await invoices.setStatus(borrador.id, 'paid')
-    if (actualizada) actualizar({ status: 'paid', number: actualizada.number })
+    const actualizada = await invoices.setStatus(borrador.id, v.estadoCerrado)
+    if (actualizada) actualizar({ status: v.estadoCerrado, number: actualizada.number })
+  }
+
+  /** Cotización aceptada -> factura. La cotización se queda, enlazada. */
+  async function convertir() {
+    if (!borrador.id) return
+    setConvirtiendo(true)
+    try {
+      await guardarAhora(borrador)
+      const factura = await quotes.convertirEnFactura(borrador.id)
+      onAbrirFactura?.(factura)
+    } finally {
+      setConvirtiendo(false)
+    }
   }
 
   return (
@@ -92,11 +110,11 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
         <div className="px-6 pt-11 pb-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={onSalir}>
-              Facturas
+              {v.seccion}
             </Button>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-ink truncate">
-                {sinEmitir ? 'Borrador' : borrador.number}
+                {sinEmitir ? `Borrador de ${v.singular}` : borrador.number}
               </p>
               <IndicadorGuardado estado={estadoGuardado} />
             </div>
@@ -108,17 +126,36 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
             </Button>
             {sinEmitir ? (
               <Button variant="primary" icon={Send} onClick={emitir} disabled={emitiendo}>
-                {emitiendo ? 'Emitiendo…' : 'Emitir factura'}
-              </Button>
-            ) : borrador.status !== 'paid' ? (
-              <Button variant="primary" icon={Check} onClick={marcarPagada}>
-                Marcar como pagada
+                {emitiendo ? 'Guardando…' : v.accionEmitir}
               </Button>
             ) : (
-              <span className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl
-                bg-paid-bg text-paid-ink text-sm font-medium">
-                <Check className="size-4" /> Pagada
-              </span>
+              <>
+                {borrador.status !== v.estadoCerrado ? (
+                  <Button variant={kind === 'quote' ? 'secondary' : 'primary'} icon={Check} onClick={cerrar}>
+                    {v.accionCerrar}
+                  </Button>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl
+                    bg-paid-bg text-paid-ink text-sm font-medium">
+                    <Check className="size-4" /> {v.etiquetaCerrado}
+                  </span>
+                )}
+
+                {kind === 'quote' && (
+                  <Button
+                    variant="primary"
+                    icon={FileText}
+                    onClick={convertir}
+                    disabled={convirtiendo || yaConvertida}
+                  >
+                    {yaConvertida
+                      ? 'Ya convertida'
+                      : convirtiendo
+                        ? 'Convirtiendo…'
+                        : 'Convertir en factura'}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -132,12 +169,12 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
       <Modal
         abierto={preguntarEmitir}
         onCerrar={() => setPreguntarEmitir(false)}
-        title="Esta factura aún es un borrador"
-        description="Si la exportas ahora, el PDF dirá «BORRADOR» en lugar de un número de factura. ¿Quieres emitirla primero?"
+        title={`Esta ${v.singular} aún es un borrador`}
+        description={`Si la exportas ahora, el PDF dirá «BORRADOR» en lugar de un número. ¿Quieres marcarla como ${v.verboEmitido} primero?`}
       >
         <Button onClick={exportarComoBorrador}>Exportar como borrador</Button>
         <Button variant="primary" icon={Send} onClick={emitirYExportar}>
-          Emitir y exportar
+          {v.accionEmitir} y exportar
         </Button>
       </Modal>
 
@@ -163,12 +200,15 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
                       // el usuario ya la haya puesto a mano.
                       due_date: borrador.due_date
                         ? borrador.due_date
-                        : addDays(e.target.value, ajustes.payment_terms_days),
+                        : addDays(
+                            e.target.value,
+                            kind === 'quote' ? quotes.DIAS_DE_VALIDEZ : ajustes.payment_terms_days,
+                          ),
                     })
                   }
                 />
               </Field>
-              <Field label="Vencimiento">
+              <Field label={v.etiquetaFecha}>
                 <input
                   type="date"
                   className={inputClass}

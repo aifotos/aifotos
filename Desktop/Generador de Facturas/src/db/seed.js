@@ -18,7 +18,7 @@ UPDATE settings SET
 WHERE id = 1;
 
 -- Cuatro facturas emitidas (FAC-0001..0004) y un borrador sin emitir.
-UPDATE settings SET next_invoice_number = 5, next_draft_number = 2 WHERE id = 1;
+UPDATE settings SET next_invoice_number = 5, next_draft_number = 2, next_quote_number = 4 WHERE id = 1;
 
 INSERT INTO clients (id, name, name_key, email, phone, address, tax_id, times_used, last_used_at) VALUES
  (1, 'Restaurante La Bodeguita', 'restaurante la bodeguita', 'gerencia@labodeguita.do', '(809) 555-0111', 'Av. Winston Churchill 45, Piantini', '130-45678-9', 3, datetime('now','-2 days')),
@@ -68,4 +68,31 @@ INSERT INTO invoice_items (invoice_id, service_id, position, description, quanti
  (4, 2, 1, 'Edición y retoque',             10000, 'imagen',   45000,  450000),
 
  (5, 1, 0, 'Sesión fotográfica de producto', 1000, 'sesión', 1500000, 1500000);
+
+-- =====================================================================
+-- COTIZACIONES  (kind = 'quote'; due_date significa "válida hasta")
+-- =====================================================================
+INSERT INTO invoices (id, number, kind, client_id, client_name, client_email, client_phone, client_address, client_tax_id,
+                      issue_date, due_date, status, converted_to_id, subtotal_cents, discount_type, discount_value,
+                      discount_cents, total_cents, notes, payment_details) VALUES
+ (6, 'COT-0001', 'quote', 3, 'Grupo Orión SRL', 'compras@grupoorion.com.do', '(809) 555-0155', 'Torre Empresarial, Naco', '131-99887-2',
+     date('now','-6 days'), date('now','+24 days'), 'sent', NULL,
+     3880000, 'none', 0, 0, 3880000, 'Precios válidos por 30 días.', 'Banco Popular · Cuenta de ahorros 123-456789-0 · AIFotos'),
+
+ (7, 'COT-0002', 'quote', 2, 'Idalise Marte', 'idalise@mail.com', '(829) 555-0177', 'Los Cacicazgos, Santo Domingo', '',
+     date('now','-45 days'), date('now','-15 days'), 'sent', NULL,
+     2800000, 'none', 0, 0, 2800000, 'Precios válidos por 30 días.', 'Banco Popular · Cuenta de ahorros 123-456789-0 · AIFotos'),
+
+ (8, 'COT-0003', 'quote', 4, 'Cafetería Stroke', 'hola@stroke.do', '(849) 555-0122', 'Zona Colonial, Santo Domingo', '',
+     date('now','-3 days'), date('now','+27 days'), 'draft', NULL,
+     600000, 'none', 0, 0, 600000, '', 'Banco Popular · Cuenta de ahorros 123-456789-0 · AIFotos');
+
+INSERT INTO invoice_items (invoice_id, service_id, position, description, quantity_milli, unit, unit_price_cents, line_total_cents) VALUES
+ (6, 4, 0, 'Cobertura de evento',              1000, 'evento', 2200000, 2200000),
+ (6, 2, 1, 'Edición y retoque',                4000, 'imagen',   45000,  180000),
+ (6, 1, 2, 'Sesión fotográfica de producto',   1000, 'sesión', 1500000, 1500000),
+
+ (7, 3, 0, 'Video promocional',                1000, 'video',  2800000, 2800000),
+
+ (8, 5, 0, 'Diseño de miniatura',             10000, 'unidad',   60000,  600000);
 `

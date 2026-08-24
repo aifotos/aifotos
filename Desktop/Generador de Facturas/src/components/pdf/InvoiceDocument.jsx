@@ -2,6 +2,7 @@ import { forwardRef } from 'react'
 import { formatMoney, formatQty, lineTotal } from '../../lib/money.js'
 import { formatDate } from '../../lib/dates.js'
 import { esBorrador } from '../../db/settings.js'
+import { doc as vocabulario } from '../../lib/documentos.js'
 
 /**
  * El documento que ve el cliente.
@@ -18,6 +19,7 @@ const InvoiceDocument = forwardRef(function InvoiceDocument(
   ref,
 ) {
   const moneda = borrador.currency_symbol
+  const v = vocabulario(borrador.kind)
   const numero = esBorrador(borrador.number) ? 'BORRADOR' : borrador.number
   const lineas = borrador.items.filter(
     (it) => it.description?.trim() || it.unit_price_cents > 0,
@@ -56,11 +58,17 @@ const InvoiceDocument = forwardRef(function InvoiceDocument(
         </div>
 
         <div className="text-right shrink-0">
-          <p className="text-[22px] font-semibold tracking-tight leading-none">FACTURA</p>
+          <p className="text-[22px] font-semibold tracking-tight leading-none">
+            {v.tituloDocumento}
+          </p>
           <p className="mt-1.5 text-sm font-medium tabular-nums">{numero}</p>
           <div className="mt-3 text-[11px] leading-relaxed text-[#5b6472]">
             <p>Emitida: {formatDate(borrador.issue_date)}</p>
-            {borrador.due_date && <p>Vence: {formatDate(borrador.due_date)}</p>}
+            {borrador.due_date && (
+              <p>
+                {v.etiquetaFechaDoc}: {formatDate(borrador.due_date)}
+              </p>
+            )}
           </div>
         </div>
       </header>

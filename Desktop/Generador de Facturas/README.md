@@ -71,6 +71,52 @@ Generador de Facturas/
         └── lib.rs             Registro de plugins + migraciones de la BD
 ```
 
+### Facturas y cotizaciones
+
+Son el mismo documento en la misma tabla, separados por la columna `kind`.
+Comparten editor, PDF, autoguardado y catalogo; lo unico que cambia es el
+vocabulario (`src/lib/documentos.js`) y el ciclo de vida.
+
+**Toda lectura pasa por una vista, nunca por la tabla `invoices`:**
+
+```sql
+CREATE VIEW facturas     AS SELECT * FROM invoices WHERE kind = 'invoice';
+CREATE VIEW cotizaciones AS SELECT * FROM invoices WHERE kind = 'quote';
+```
+
+Ese es el punto entero del diseno. Con una sola tabla, cada consulta
+tendria que acordarse de filtrar por `kind`, y olvidarse una vez significa
+que el panel da por cobrable un presupuesto que nadie acepto. Con las
+vistas no queda ni un camino de lectura sin filtrar: **olvidarse deja de
+ser posible**. La unica excepcion deliberada es `recomputarUso()`, que
+cuenta los dos tipos porque para ordenar el autocompletado importa con
+quien trabajas, no si el papel era fiscal.
+
+Diferencias que no son cosmeticas:
+
+| | Factura | Cotizacion |
+|---|---|---|
+| Numeracion | `FAC-` (fiscal) | `COT-` (secuencia aparte) |
+| Estados | draft, pending, paid, cancelled | draft, sent, accepted, rejected |
+| `due_date` | fecha limite de pago | valida hasta |
+| Fecha pasada | **Vencida** — te deben dinero | **Caducada** — solo expiro |
+| Cuenta como dinero | si | nunca |
+
+Un CHECK en la base rechaza los estados cruzados: una factura no puede
+estar "aceptada" ni una cotizacion "pagada".
+
+"Caducada" y "Convertida" no se guardan como estado: la primera se deduce
+de `due_date` y la segunda de `converted_to_id`. Un estado que se puede
+calcular no debe almacenarse, o acaba contradiciendo a los datos de los
+que salio.
+
+Al convertir, la cotizacion **no se transforma ni se borra**: se queda
+marcada como aceptada y enlazada a la factura que salio de ella
+(`converted_to_id`), que ademas es el seguro que impide convertirla dos
+veces. La factura nace con su `FAC-` propio y con tu plazo de pago
+habitual contado desde hoy — no hereda la fecha de validez de la
+cotizacion, que suele estar ya casi agotada cuando el cliente acepta.
+
 ### Regla de oro de las migraciones
 
 `src-tauri/migrations/001_esquema_inicial.sql` **no se toca nunca mas**.

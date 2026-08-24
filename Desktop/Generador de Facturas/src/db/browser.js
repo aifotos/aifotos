@@ -17,9 +17,17 @@ import initSqlJs from 'sql.js'
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import v1 from '../../src-tauri/migrations/001_esquema_inicial.sql?raw'
 import v2 from '../../src-tauri/migrations/002_numeracion_de_borradores.sql?raw'
+import v3 from '../../src-tauri/migrations/003_cotizaciones.sql?raw'
 import { datosDeEjemplo } from './seed.js'
 
 const CLAVE = 'facturapro:dev-db'
+const CLAVE_VERSION = 'facturapro:dev-db-version'
+
+/**
+ * Las migraciones, en orden. El indice + 1 es su version, igual que en
+ * `migrations()` de src-tauri/src/lib.rs.
+ */
+const MIGRACIONES = [v1, v2, v3]
 
 /** Adaptador con la misma interfaz que `@tauri-apps/plugin-sql`. */
 class BrowserDatabase {
@@ -100,16 +108,22 @@ export async function loadBrowserDatabase() {
   const guardada = localStorage.getItem(CLAVE)
   if (guardada) {
     try {
-      return new BrowserDatabase(new SQL.Database(new Uint8Array(JSON.parse(guardada))))
-    } catch {
+      const db = new SQL.Database(new Uint8Array(JSON.parse(guardada)))
+      aplicarMigracionesPendientes(db)
+      return new BrowserDatabase(db)
+    } catch (e) {
+      // Una base de desarrollo corrupta o imposible de migrar se tira y se
+      // rehace: no hay nada que perder ahi que no sean datos de ejemplo.
+      console.warn('[FacturaPro] Base de desarrollo descartada:', e.message)
       localStorage.removeItem(CLAVE)
+      localStorage.removeItem(CLAVE_VERSION)
     }
   }
 
   const db = new SQL.Database()
-  // Las mismas migraciones y en el mismo orden que aplica Tauri.
-  for (const migracion of [v1, v2]) db.run(migracion)
+  for (const migracion of MIGRACIONES) db.run(migracion)
   db.run(datosDeEjemplo)
+  localStorage.setItem(CLAVE_VERSION, String(MIGRACIONES.length))
   guardar(db)
   console.info(
     '%c[FacturaPro] Modo navegador — SQLite en WebAssembly con datos de ejemplo.\n' +
@@ -117,6 +131,27 @@ export async function loadBrowserDatabase() {
     'color:#2560e0',
   )
   return new BrowserDatabase(db)
+}
+
+/**
+ * Pone al dia una base de desarrollo ya guardada.
+ *
+ * Sin esto, las migraciones nuevas solo se aplicaban al crear la base
+ * desde cero: quien ya tuviera una en localStorage se quedaba con el
+ * esquema viejo y la app fallaba con errores desconcertantes del tipo
+ * "no such table: facturas". La app nativa nunca tuvo el problema porque
+ * Tauri lleva su propio control de version; esto le pone el equivalente.
+ */
+function aplicarMigracionesPendientes(db) {
+  const aplicadas = Number(localStorage.getItem(CLAVE_VERSION) ?? 0)
+  if (aplicadas >= MIGRACIONES.length) return
+
+  for (let i = aplicadas; i < MIGRACIONES.length; i++) {
+    db.run(MIGRACIONES[i])
+    console.info(`[FacturaPro] Migración ${i + 1} aplicada a la base de desarrollo`)
+  }
+  localStorage.setItem(CLAVE_VERSION, String(MIGRACIONES.length))
+  guardar(db)
 }
 
 /** Borra la base de desarrollo y recarga. Util desde la consola. */

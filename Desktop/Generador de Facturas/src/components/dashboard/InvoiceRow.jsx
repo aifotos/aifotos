@@ -2,12 +2,14 @@ import { MoreHorizontal } from 'lucide-react'
 import Badge from '../ui/Badge.jsx'
 import { formatMoney } from '../../lib/money.js'
 import { formatDateShort, dueLabel } from '../../lib/dates.js'
-import { isOverdue } from '../../db/invoices.js'
+import { isOverdue, estaCaducada, estaConvertida } from '../../db/invoices.js'
 import { esBorrador } from '../../db/settings.js'
 
-/** Una fila de la lista de facturas. Toda la fila es clicable. */
+/** Una fila del listado. Toda la fila es clicable. */
 export default function InvoiceRow({ invoice, onAbrir, onMenu }) {
   const vencida = isOverdue(invoice)
+  const caducada = estaCaducada(invoice)
+  const convertida = estaConvertida(invoice)
 
   return (
     <div
@@ -36,10 +38,17 @@ export default function InvoiceRow({ invoice, onAbrir, onMenu }) {
         <p className="text-xs text-ink-faint truncate">
           {invoice.item_count} {invoice.item_count === 1 ? 'línea' : 'líneas'}
           {vencida && <span className="text-overdue-ink"> · {dueLabel(invoice.due_date)}</span>}
+          {caducada && <span> · caducó el {formatDateShort(invoice.due_date)}</span>}
         </p>
       </div>
 
-      <Badge status={invoice.status} overdue={vencida} />
+      <Badge
+        status={invoice.status}
+        kind={invoice.kind}
+        overdue={vencida}
+        expired={caducada}
+        converted={convertida}
+      />
 
       <p className="text-sm font-semibold text-ink tabular-nums text-right min-w-28">
         {formatMoney(invoice.total_cents, invoice.currency_symbol)}

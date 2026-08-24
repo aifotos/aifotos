@@ -8,17 +8,36 @@ import EmptyState from '../components/ui/EmptyState.jsx'
 import Menu, { MenuItem, MenuSeparator } from '../components/ui/Menu.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import { esBorrador } from '../db/settings.js'
+import { doc as vocabulario } from '../lib/documentos.js'
 import * as invoices from '../db/invoices.js'
+import * as quotes from '../db/quotes.js'
 
-const FILTROS = [
-  { id: null, label: 'Todas' },
-  { id: 'pending', label: 'Pendientes' },
-  { id: 'paid', label: 'Pagadas' },
-  { id: 'draft', label: 'Borradores' },
-]
+const FILTROS = {
+  invoice: [
+    { id: null, label: 'Todas' },
+    { id: 'pending', label: 'Pendientes' },
+    { id: 'paid', label: 'Pagadas' },
+    { id: 'draft', label: 'Borradores' },
+  ],
+  quote: [
+    { id: null, label: 'Todas' },
+    { id: 'sent', label: 'Enviadas' },
+    { id: 'accepted', label: 'Aceptadas' },
+    { id: 'draft', label: 'Borradores' },
+  ],
+}
 
-/** Pantalla principal: resumen + historial de facturas. */
-export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactura }) {
+/**
+ * Listado de documentos: facturas o cotizaciones.
+ *
+ * Es la misma pantalla para las dos porque el listado es identico; lo que
+ * cambia son los filtros, las cifras de arriba y el vocabulario. Duplicarla
+ * habria sido garantizar que dentro de un mes solo una de las dos copias
+ * tuviera el arreglo del proximo fallo.
+ */
+export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFactura, onAbrirFactura }) {
+  const v = vocabulario(kind)
+  const datos = kind === 'quote' ? quotes : invoices
   const [lista, setLista] = useState([])
   const [resumen, setResumen] = useState(null)
   const [filtro, setFiltro] = useState(null)
@@ -30,10 +49,17 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
 
   const refrescar = useCallback(() => setRecarga((n) => n + 1), [])
 
+  // Al cambiar de seccion se sueltan filtro y busqueda: 'pending' no existe
+  // entre las cotizaciones y dejaria el listado vacio sin explicacion.
+  useEffect(() => {
+    setFiltro(null)
+    setBusqueda('')
+  }, [kind])
+
   useEffect(() => {
     let vivo = true
     setCargando(true)
-    Promise.all([invoices.list({ status: filtro, search: busqueda }), invoices.summary()])
+    Promise.all([datos.list({ status: filtro, search: busqueda }), datos.summary()])
       .then(([filas, sum]) => {
         if (!vivo) return
         setLista(filas)
@@ -43,7 +69,7 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
     return () => {
       vivo = false
     }
-  }, [filtro, busqueda, recarga])
+  }, [filtro, busqueda, recarga, kind, datos])
 
   async function cambiarEstado(invoice, status) {
     setMenu(null)
@@ -56,6 +82,13 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
     const copia = await invoices.duplicate(invoice.id)
     refrescar()
     if (copia) onAbrirFactura(copia)
+  }
+
+  async function convertir(cotizacion) {
+    setMenu(null)
+    const factura = await quotes.convertirEnFactura(cotizacion.id)
+    refrescar()
+    if (factura) onAbrirFactura(factura)
   }
 
   async function borrar() {
@@ -73,28 +106,28 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
   const titulo = useMemo(() => {
     if (cargando) return null
     const n = lista.length
-    return `${n} ${n === 1 ? 'factura' : 'facturas'}`
-  }, [lista.length, cargando])
+    return `${n} ${n === 1 ? v.singular : v.seccion.toLowerCase()}`
+  }, [lista.length, cargando, v])
 
   return (
     <>
       <PageHeader
-        title="Facturas"
+        title={v.seccion}
         subtitle={titulo}
         actions={
           <Button variant="primary" icon={Plus} onClick={onNuevaFactura}>
-            Nueva factura
+            {v.nuevo}
           </Button>
         }
       />
 
       <div className="px-8 py-6 space-y-6">
-        <SummaryCards resumen={resumen} moneda={moneda} />
+        <SummaryCards resumen={resumen} kind={kind} moneda={moneda} />
 
         {/* Filtros y buscador */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 p-1 bg-line/50 rounded-xl">
-            {FILTROS.map(({ id, label }) => (
+            {FILTROS[kind].map(({ id, label }) => (
               <button
                 key={label}
                 onClick={() => setFiltro(id)}
@@ -115,7 +148,7 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
             <input
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Buscar por cliente o número…"
+              placeholder={`Buscar ${v.articulo} ${v.singular}…`}
               className="h-9 w-64 pl-9 pr-3 rounded-xl bg-surface border border-line
                 text-sm text-ink placeholder:text-ink-faint
                 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
@@ -132,8 +165,8 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
           ) : vacioReal ? (
             <EmptyState
               icon={FileText}
-              title="Todavía no hay facturas"
-              description="Crea tu primera factura. Los clientes y servicios que escribas se guardarán solos para la próxima."
+              title={`Todavía no hay ${v.seccion.toLowerCase()}`}
+              description={`Crea tu primera ${v.singular}. Los clientes y servicios que escribas se guardarán solos para la próxima.`}
               action={
                 <Button variant="primary" icon={Plus} onClick={onNuevaFactura}>
                   Crear la primera
@@ -144,7 +177,7 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
             <EmptyState
               icon={Search}
               title="Sin resultados"
-              description="Ninguna factura coincide con lo que buscas."
+              description={`Ninguna ${v.singular} coincide con lo que buscas.`}
               action={
                 <Button
                   onClick={() => {
@@ -190,7 +223,31 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
               Duplicar
             </MenuItem>
             <MenuSeparator />
-            {menu.invoice.status === 'paid' ? (
+            {kind === 'quote' ? (
+              <>
+                {menu.invoice.status !== 'accepted' && (
+                  <MenuItem icon={Check} onClick={() => cambiarEstado(menu.invoice, 'accepted')}>
+                    {esBorrador(menu.invoice.number) ? 'Enviar y aceptar' : 'Marcar aceptada'}
+                  </MenuItem>
+                )}
+                {menu.invoice.status !== 'rejected' && (
+                  <MenuItem icon={Undo2} onClick={() => cambiarEstado(menu.invoice, 'rejected')}>
+                    Marcar rechazada
+                  </MenuItem>
+                )}
+                <MenuSeparator />
+                {/* Convertir se ofrece SIEMPRE que no se haya convertido ya:
+                    aceptar y convertir son dos gestos distintos, y a veces
+                    facturas directamente sin pasar por "aceptada". */}
+                <MenuItem
+                  icon={FileText}
+                  disabled={quotes.estaConvertida(menu.invoice) || esBorrador(menu.invoice.number)}
+                  onClick={() => convertir(menu.invoice)}
+                >
+                  {quotes.estaConvertida(menu.invoice) ? 'Ya convertida' : 'Convertir en factura'}
+                </MenuItem>
+              </>
+            ) : menu.invoice.status === 'paid' ? (
               <MenuItem icon={Undo2} onClick={() => cambiarEstado(menu.invoice, 'pending')}>
                 Marcar pendiente
               </MenuItem>
@@ -217,10 +274,11 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
       <Modal
         abierto={!!aBorrar}
         onCerrar={() => setABorrar(null)}
-        title="¿Eliminar esta factura?"
+        title={`¿Eliminar esta ${v.singular}?`}
         description={
           aBorrar
-            ? `Se borrará ${esBorrador(aBorrar.number) ? 'este borrador' : aBorrar.number} y sus líneas. No se puede deshacer, y el número no se reutiliza.`
+            ? `Se borrará ${esBorrador(aBorrar.number) ? 'este borrador' : aBorrar.number} y sus líneas. ` +
+              'No se puede deshacer, y el número no se reutiliza.'
             : ''
         }
       >

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoiceTotals } from '../lib/money.js'
 import { today, addDays } from '../lib/dates.js'
+import { DIAS_DE_VALIDEZ } from '../db/quotes.js'
 import * as invoices from '../db/invoices.js'
 import { registrarFallo } from '../lib/logging.js'
 
@@ -18,15 +19,19 @@ export function lineaVacia() {
   }
 }
 
-function borradorNuevo(ajustes) {
+function borradorNuevo(ajustes, kind) {
   const emision = today()
+  // La segunda fecha significa cosas distintas: una factura vence a los
+  // dias de pago pactados; una cotizacion caduca al mes.
+  const plazo = kind === 'quote' ? DIAS_DE_VALIDEZ : (ajustes.payment_terms_days ?? 15)
   return {
     id: null,
     number: null,
+    kind,
     client: { name: '', email: '', phone: '', address: '', tax_id: '' },
     items: [lineaVacia()],
     issue_date: emision,
-    due_date: addDays(emision, ajustes.payment_terms_days ?? 15),
+    due_date: addDays(emision, plazo),
     status: 'draft',
     discount_type: 'none',
     discount_value: 0,
@@ -41,6 +46,8 @@ function desdeLaBase(factura) {
   return {
     id: factura.id,
     number: factura.number,
+    kind: factura.kind ?? 'invoice',
+    converted_to_id: factura.converted_to_id ?? null,
     client: {
       name: factura.client_name,
       email: factura.client_email,
@@ -73,7 +80,7 @@ const RETRASO_AUTOGUARDADO = 1200
  * recibe su 'FAC-0007' definitivo solo al emitirlo. Asi, tres borradores
  * que nunca emites no dejan tres huecos en tu numeracion fiscal.
  */
-export default function useInvoiceDraft({ ajustes, facturaId = null }) {
+export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'invoice' }) {
   const [borrador, setBorrador] = useState(null)
   const [estadoGuardado, setEstadoGuardado] = useState('limpio') // limpio | guardando | guardado | error
   const [cargando, setCargando] = useState(true)
@@ -90,7 +97,7 @@ export default function useInvoiceDraft({ ajustes, facturaId = null }) {
     setCargando(true)
     const promesa = facturaId
       ? invoices.getFull(facturaId).then(desdeLaBase)
-      : Promise.resolve(borradorNuevo(ajustes))
+      : Promise.resolve(borradorNuevo(ajustes, kind))
 
     promesa
       .then((b) => vivo && setBorrador(b))

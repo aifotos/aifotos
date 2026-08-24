@@ -73,6 +73,19 @@ export async function consumeNumber() {
 }
 
 /**
+ * Reserva el siguiente numero de cotizacion: 'COT-0003'.
+ *
+ * Secuencia aparte de la fiscal: cotizar no puede gastar correlativo de
+ * facturas. Y al reves que las facturas, aqui un hueco no importa —
+ * la numeracion de presupuestos no la mira Hacienda.
+ */
+export async function consumeQuoteNumber() {
+  return reservar('next_quote_number', () => PREFIJO_COTIZACION)
+}
+
+export const PREFIJO_COTIZACION = 'COT-'
+
+/**
  * Numero interno de un borrador: 'BOR-0003'.
  *
  * Existe solo para cumplir la restriccion UNIQUE de `invoices.number`.
@@ -85,7 +98,12 @@ export async function consumeDraftNumber() {
 
 export const PREFIJO_BORRADOR = 'BOR-'
 
-/** ¿Este numero es el de un borrador sin emitir? */
+/**
+ * ¿Este numero es el de un borrador sin emitir?
+ *
+ * Lo comparten facturas y cotizaciones: mientras es borrador, un documento
+ * usa 'BOR-0003' y solo al emitirlo o enviarlo recibe su 'FAC-' o 'COT-'.
+ */
 export function esBorrador(number) {
   return !number || String(number).startsWith(PREFIJO_BORRADOR)
 }
