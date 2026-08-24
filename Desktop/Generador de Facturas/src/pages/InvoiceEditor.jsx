@@ -88,7 +88,6 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
       {/* Barra superior */}
       <header
         className="shrink-0 bg-canvas/85 backdrop-blur-xl border-b border-line"
-        data-tauri-drag-region
       >
         <div className="px-6 pt-11 pb-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">

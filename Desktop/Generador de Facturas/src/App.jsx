@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import AppShell from './components/layout/AppShell.jsx'
+import DragStrip from './components/layout/DragStrip.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Clients from './pages/Clients.jsx'
 import Services from './pages/Services.jsx'
@@ -36,6 +37,7 @@ export default function App() {
   if (error) {
     return (
       <div className="h-full flex items-center justify-center p-10">
+        <DragStrip />
         <div className="max-w-md text-center">
           <div className="size-12 rounded-2xl bg-overdue-bg flex items-center justify-center mx-auto mb-4">
             <AlertTriangle className="size-6 text-overdue-ink" strokeWidth={2} />
@@ -50,6 +52,7 @@ export default function App() {
   if (!ajustes) {
     return (
       <div className="h-full flex items-center justify-center text-ink-soft">
+        <DragStrip />
         <Loader2 className="size-5 animate-spin" />
       </div>
     )
@@ -64,24 +67,28 @@ export default function App() {
   // porque al escribir una factura no quieres nada mas en pantalla.
   if (editando !== null) {
     return (
-      <InvoiceEditor
-        // Al cambiar de factura hay que reiniciar el estado del formulario.
-        // Sin esta `key`, React reutilizaria el componente y arrastraria el
-        // borrador anterior a la factura recien abierta.
-        key={editando}
-        ajustes={ajustes}
-        facturaId={editando === 'nueva' ? null : editando}
-        onSalir={() => {
-          setEditando(null)
-          // Los ajustes pueden haber cambiado (numeracion consumida).
-          settings.get().then(setAjustes).catch(() => {})
-        }}
-      />
+      <>
+        <DragStrip />
+        <InvoiceEditor
+          // Al cambiar de factura hay que reiniciar el estado del formulario.
+          // Sin esta `key`, React reutilizaria el componente y arrastraria el
+          // borrador anterior a la factura recien abierta.
+          key={editando}
+          ajustes={ajustes}
+          facturaId={editando === 'nueva' ? null : editando}
+          onSalir={() => {
+            setEditando(null)
+            // Los ajustes pueden haber cambiado (numeracion consumida).
+            settings.get().then(setAjustes).catch(() => {})
+          }}
+        />
+      </>
     )
   }
 
   return (
     <AppShell seccion={seccion} onNavegar={setSeccion} onNuevaFactura={nuevaFactura}>
+      <DragStrip />
       {seccion === 'invoices' && (
         <Dashboard
           moneda={moneda}

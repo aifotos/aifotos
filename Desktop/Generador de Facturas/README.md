@@ -99,6 +99,23 @@ ahi llenaria el catalogo con texto a medias: escribir "Video promocional"
 dejaria "vi", "vid", "video"... como servicios. Un borrador es una idea;
 una factura emitida es un hecho.
 
+### Arrastrar la ventana
+
+La ventana usa `titleBarStyle: "Overlay"`: no hay barra de titulo nativa,
+asi que solo se puede arrastrar por donde se marque a mano. Hacen falta
+DOS cosas, y faltando cualquiera de las dos la ventana queda clavada sin
+dar ningun error:
+
+1. El permiso `core:window:allow-start-dragging` en `capabilities/`.
+   **`core:default` NO lo incluye** — trae `allow-is-maximized`,
+   `allow-is-resizable` y demas, pero no este. Sin el, cada arrastre se
+   deniega en silencio.
+2. Un elemento con `data-tauri-drag-region` justo bajo el cursor. Tauri
+   solo arrastra si el clic cae sobre el elemento que lleva el atributo:
+   ponerlo en un contenedor no sirve, porque cualquier hijo que lo cubra
+   lo anula. Por eso existe `components/layout/DragStrip.jsx`, una franja
+   propia y vacia de 40 px en la parte superior.
+
 ### Exportacion a PDF
 
 `window.print()` **no sirve** en esta app. WKWebView lo declara como

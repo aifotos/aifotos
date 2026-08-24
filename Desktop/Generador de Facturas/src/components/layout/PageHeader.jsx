@@ -7,7 +7,6 @@ export default function PageHeader({ title, subtitle, actions }) {
   return (
     <header
       className="sticky top-0 z-10 bg-canvas/85 backdrop-blur-xl border-b border-line"
-      data-tauri-drag-region
     >
       <div className="px-8 pt-11 pb-5 flex items-end justify-between gap-4">
         <div className="min-w-0">

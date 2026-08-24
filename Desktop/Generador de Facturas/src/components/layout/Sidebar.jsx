@@ -20,7 +20,9 @@ const SECCIONES = [
 export default function Sidebar({ actual, onNavegar, onNuevaFactura }) {
   return (
     <aside className="w-56 shrink-0 bg-canvas border-r border-line flex flex-col">
-      <div className="h-11 shrink-0" data-tauri-drag-region />
+      {/* Hueco para los semaforos de macOS. El arrastre lo gestiona
+          DragStrip, una franja aparte que cubre todo el ancho. */}
+      <div className="h-11 shrink-0" />
 
       <div className="px-3 pb-3">
         <Button
