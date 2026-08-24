@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, Cloud, CloudOff, Loader2, Send } from 'lucide-react'
+import { ArrowLeft, Check, Cloud, CloudOff, Loader2, Printer, Send } from 'lucide-react'
 import Button from '../components/ui/Button.jsx'
+import Modal from '../components/ui/Modal.jsx'
 import Field, { inputClass, textareaClass } from '../components/ui/Field.jsx'
 import ClientSection from '../components/invoice/ClientSection.jsx'
 import ItemsTable from '../components/invoice/ItemsTable.jsx'
 import TotalsSection from '../components/invoice/TotalsSection.jsx'
 import InvoiceDocument from '../components/pdf/InvoiceDocument.jsx'
 import DocumentPreview from '../components/pdf/DocumentPreview.jsx'
+import PrintArea from '../components/pdf/PrintArea.jsx'
 import useInvoiceDraft from '../hooks/useInvoiceDraft.js'
+import usePrint from '../hooks/usePrint.js'
 import { esBorrador } from '../db/settings.js'
 import { addDays } from '../lib/dates.js'
 import * as invoices from '../db/invoices.js'
@@ -21,7 +24,9 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
   const { borrador, actualizar, guardarAhora, totales, estadoGuardado, cargando } =
     useInvoiceDraft({ ajustes, facturaId })
   const [emitiendo, setEmitiendo] = useState(false)
+  const [preguntarEmitir, setPreguntarEmitir] = useState(false)
   const documento = useRef(null)
+  const imprimir = usePrint()
 
   if (cargando || !borrador) {
     return (
@@ -43,6 +48,33 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
     } finally {
       setEmitiendo(false)
     }
+  }
+
+  /**
+   * Exportar un borrador manda al cliente un PDF que pone "BORRADOR" en
+   * lugar de un numero de factura. Casi nunca es lo que se quiere, pero a
+   * veces si (ensenar un presupuesto antes de facturar en firme), asi que
+   * se pregunta en vez de decidir por el usuario.
+   */
+  async function exportar() {
+    if (sinEmitir) {
+      setPreguntarEmitir(true)
+      return
+    }
+    await guardarAhora(borrador)
+    await imprimir()
+  }
+
+  async function emitirYExportar() {
+    setPreguntarEmitir(false)
+    await emitir()
+    await imprimir()
+  }
+
+  async function exportarComoBorrador() {
+    setPreguntarEmitir(false)
+    await guardarAhora(borrador)
+    await imprimir()
   }
 
   async function marcarPagada() {
@@ -72,6 +104,9 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <Button icon={Printer} onClick={exportar}>
+              Exportar PDF
+            </Button>
             {sinEmitir ? (
               <Button variant="primary" icon={Send} onClick={emitir} disabled={emitiendo}>
                 {emitiendo ? 'Emitiendo…' : 'Emitir factura'}
@@ -89,6 +124,23 @@ export default function InvoiceEditor({ ajustes, facturaId, onSalir }) {
           </div>
         </div>
       </header>
+
+      {/* Copia a tamano real, invisible en pantalla: es la que se imprime */}
+      <PrintArea>
+        <InvoiceDocument borrador={borrador} totales={totales} emisor={ajustes} />
+      </PrintArea>
+
+      <Modal
+        abierto={preguntarEmitir}
+        onCerrar={() => setPreguntarEmitir(false)}
+        title="Esta factura aún es un borrador"
+        description="Si la exportas ahora, el PDF dirá «BORRADOR» en lugar de un número de factura. ¿Quieres emitirla primero?"
+      >
+        <Button onClick={exportarComoBorrador}>Exportar como borrador</Button>
+        <Button variant="primary" icon={Send} onClick={emitirYExportar}>
+          Emitir y exportar
+        </Button>
+      </Modal>
 
       {/* Formulario | Vista previa */}
       <div className="flex-1 min-h-0 flex">

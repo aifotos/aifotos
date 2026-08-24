@@ -94,10 +94,46 @@
 
 /* ============================================================
    IMPRESION / PDF
-   Solo se renderiza el documento, sin la interfaz de la app.
-   ============================================================ */
+   ============================================================
+   La factura se imprime desde una copia aparte del documento, no desde
+   la vista previa del editor. La vista previa lleva un `transform:
+   scale()` para caber en el panel, y lo que se imprime debe salir a
+   tamano A4 real — imprimir la vista previa daria una factura reducida
+   en una esquina del papel.
+
+   Esa copia vive en #zona-impresion, fuera de #root: oculta en pantalla
+   y lo unico visible al imprimir.
+*/
+#zona-impresion {
+  display: none;
+}
+
 @media print {
-  @page { size: A4; margin: 0; }
-  body { background: #fff; }
-  .no-print { display: none !important; }
+  @page {
+    size: A4;
+    /* Sin margen de pagina: los margenes ya estan dentro del documento
+       (18 mm arriba/abajo, 16 mm a los lados). Dejarselos tambien a la
+       impresora los sumaria dos veces. */
+    margin: 0;
+  }
+
+  html, body {
+    background: #fff;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* Todo lo que no sea el documento desaparece: barra lateral, botones,
+     formulario y la propia vista previa. */
+  body > *:not(#zona-impresion) {
+    display: none !important;
+  }
+
+  #zona-impresion {
+    display: block;
+  }
+
+  .no-print {
+    display: none !important;
+  }
 }

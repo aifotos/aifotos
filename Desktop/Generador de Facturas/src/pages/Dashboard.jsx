@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { FileText, Search, Plus, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { FileText, Search, Plus, Loader2, Pencil, Copy, Check, Undo2, Trash2 } from 'lucide-react'
 import PageHeader from '../components/layout/PageHeader.jsx'
 import SummaryCards from '../components/dashboard/SummaryCards.jsx'
 import InvoiceRow from '../components/dashboard/InvoiceRow.jsx'
 import Button from '../components/ui/Button.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
+import Menu, { MenuItem, MenuSeparator } from '../components/ui/Menu.jsx'
+import Modal from '../components/ui/Modal.jsx'
+import { esBorrador } from '../db/settings.js'
 import * as invoices from '../db/invoices.js'
 
 const FILTROS = [
@@ -21,6 +24,11 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
   const [filtro, setFiltro] = useState(null)
   const [busqueda, setBusqueda] = useState('')
   const [cargando, setCargando] = useState(true)
+  const [menu, setMenu] = useState(null)          // { invoice, x, y }
+  const [aBorrar, setABorrar] = useState(null)
+  const [recarga, setRecarga] = useState(0)
+
+  const refrescar = useCallback(() => setRecarga((n) => n + 1), [])
 
   useEffect(() => {
     let vivo = true
@@ -35,7 +43,27 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
     return () => {
       vivo = false
     }
-  }, [filtro, busqueda])
+  }, [filtro, busqueda, recarga])
+
+  async function cambiarEstado(invoice, status) {
+    setMenu(null)
+    await invoices.setStatus(invoice.id, status)
+    refrescar()
+  }
+
+  async function duplicar(invoice) {
+    setMenu(null)
+    const copia = await invoices.duplicate(invoice.id)
+    refrescar()
+    if (copia) onAbrirFactura(copia)
+  }
+
+  async function borrar() {
+    const id = aBorrar.id
+    setABorrar(null)
+    await invoices.remove(id)
+    refrescar()
+  }
 
   const hayFacturas = lista.length > 0
   // Si no hay ninguna factura y tampoco hay filtro activo, la app esta
@@ -135,13 +163,72 @@ export default function Dashboard({ moneda = 'RD$', onNuevaFactura, onAbrirFactu
                   key={f.id}
                   invoice={f}
                   onAbrir={onAbrirFactura}
-                  onMenu={() => {}}
+                  onMenu={(invoice, e) => {
+                    const r = e.currentTarget.getBoundingClientRect()
+                    setMenu({ invoice, x: r.right - 200, y: r.bottom + 4 })
+                  }}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <Menu en={menu} onCerrar={() => setMenu(null)}>
+        {menu && (
+          <>
+            <MenuItem
+              icon={Pencil}
+              onClick={() => {
+                setMenu(null)
+                onAbrirFactura(menu.invoice)
+              }}
+            >
+              Abrir y exportar
+            </MenuItem>
+            <MenuItem icon={Copy} onClick={() => duplicar(menu.invoice)}>
+              Duplicar
+            </MenuItem>
+            <MenuSeparator />
+            {menu.invoice.status === 'paid' ? (
+              <MenuItem icon={Undo2} onClick={() => cambiarEstado(menu.invoice, 'pending')}>
+                Marcar pendiente
+              </MenuItem>
+            ) : (
+              <MenuItem icon={Check} onClick={() => cambiarEstado(menu.invoice, 'paid')}>
+                {esBorrador(menu.invoice.number) ? 'Emitir y cobrar' : 'Marcar pagada'}
+              </MenuItem>
+            )}
+            <MenuSeparator />
+            <MenuItem
+              icon={Trash2}
+              peligroso
+              onClick={() => {
+                setABorrar(menu.invoice)
+                setMenu(null)
+              }}
+            >
+              Eliminar
+            </MenuItem>
+          </>
+        )}
+      </Menu>
+
+      <Modal
+        abierto={!!aBorrar}
+        onCerrar={() => setABorrar(null)}
+        title="¿Eliminar esta factura?"
+        description={
+          aBorrar
+            ? `Se borrará ${esBorrador(aBorrar.number) ? 'este borrador' : aBorrar.number} y sus líneas. No se puede deshacer, y el número no se reutiliza.`
+            : ''
+        }
+      >
+        <Button onClick={() => setABorrar(null)}>Cancelar</Button>
+        <Button variant="danger" icon={Trash2} onClick={borrar}>
+          Eliminar
+        </Button>
+      </Modal>
     </>
   )
 }

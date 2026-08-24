@@ -20,10 +20,10 @@ datos de la app. No hay servidor, no hay cuenta, no hay internet, no se duerme.
 ```bash
 npm run dev        # Solo el frontend en el navegador (rapido, para maquetar)
 npm run app:dev    # La app real en una ventana nativa de macOS
-npm run app:build  # Compila el .app y el .dmg para distribuir
+npm run app:build  # Compila el .app
 ```
 
-El binario final queda en `src-tauri/target/release/bundle/`.
+El `.app` queda en `src-tauri/target/release/bundle/macos/`.
 
 ## Estructura
 
@@ -99,12 +99,26 @@ ahi llenaria el catalogo con texto a medias: escribir "Video promocional"
 dejaria "vi", "vid", "video"... como servicios. Un borrador es una idea;
 una factura emitida es un hecho.
 
-### Si `npm run app:build` se queda colgado
+### Exportacion a PDF
 
-El ultimo paso empaqueta el `.dmg` con `bundle_dmg.sh`, que pide a Finder
-que coloque los iconos por AppleScript y a veces se atasca. El `.app` ya
-esta listo para entonces, en
-`src-tauri/target/release/bundle/macos/`. Corta con Ctrl-C y usalo.
+`window.print()` **no sirve** en esta app. WKWebView lo declara como
+funcion pero no hace nada: retorna en 1 ms y no dispara ni `beforeprint`
+ni `afterprint`. Comprobado con una sonda. La impresion se pide al comando
+`imprimir` de Rust (`src-tauri/src/lib.rs`), que llama al motor del
+sistema; desde el panel de macOS se elige "PDF > Guardar como PDF" y sale
+un PDF con texto real, no una captura.
+
+Lo que se imprime NO es la vista previa del editor: esa lleva un
+`transform: scale()` para caber en el panel y saldria encogida en una
+esquina del folio. Se imprime una copia aparte a escala 1 que vive en
+`#zona-impresion`, fuera de `#root` (ver `components/pdf/PrintArea.jsx`).
+
+### Sobre el `.dmg`
+
+`bundle.targets` esta en `["app"]` a proposito. Anadir `"dmg"` hace que el
+build termine llamando a `bundle_dmg.sh`, que pide a Finder colocar los
+iconos por AppleScript y se cuelga de forma intermitente. Para distribuir,
+anade `"dmg"` puntualmente.
 
 ### Cuando algo falla
 
@@ -119,4 +133,4 @@ porque una ventana en blanco no dice nada por si sola.
 - [x] **Fase 2** — Esquema de base de datos y capa de acceso a datos
 - [x] **Fase 3** — Dashboard, layout y pantallas de consulta
 - [x] **Fase 4** — Editor de facturas, autocompletado y autoguardado
-- [ ] **Fase 5** — Exportacion a PDF
+- [x] **Fase 5** — Exportacion a PDF por impresion nativa

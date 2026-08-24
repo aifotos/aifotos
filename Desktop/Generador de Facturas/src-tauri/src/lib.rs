@@ -36,6 +36,20 @@ fn migrations() -> Vec<Migration> {
     ]
 }
 
+/// Abre el dialogo de impresion nativo de macOS.
+///
+/// `window.print()` del navegador NO sirve aqui: WKWebView lo declara como
+/// funcion pero no hace nada — retorna en 1 ms y no dispara ni `beforeprint`
+/// ni `afterprint`. Comprobado. La impresion hay que pedirla desde Rust,
+/// donde Tauri llama al motor de impresion del sistema.
+///
+/// Desde ahi el usuario elige "PDF > Guardar como PDF", que produce un PDF
+/// con texto real: seleccionable, buscable y nitido a cualquier zoom.
+#[tauri::command]
+fn imprimir(webview: tauri::WebviewWindow) -> Result<(), String> {
+    webview.print().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -60,6 +74,7 @@ pub fn run() {
                 })
                 .build(),
         )
+        .invoke_handler(tauri::generate_handler![imprimir])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

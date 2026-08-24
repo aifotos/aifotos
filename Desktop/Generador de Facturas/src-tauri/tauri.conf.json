@@ -31,8 +31,7 @@
   "bundle": {
     "active": true,
     "targets": [
-      "app",
-      "dmg"
+      "app"
     ],
     "category": "Business",
     "copyright": "© 2026 aifotos",
