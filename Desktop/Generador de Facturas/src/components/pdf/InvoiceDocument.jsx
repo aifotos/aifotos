@@ -81,6 +81,11 @@ const InvoiceDocument = forwardRef(function InvoiceDocument(
         fontSize: '10.5px',
         lineHeight: 1.45,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
+        // Tambien aqui, ademas de en la hoja de impresion: el documento
+        // se renderiza dos veces (vista previa y copia imprimible) y
+        // este estilo viaja con el, no con la pagina que lo contiene.
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact',
       }}
     >
       {/* ---------------------------------------------- Emisor + identidad */}

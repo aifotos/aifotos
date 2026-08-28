@@ -112,9 +112,34 @@
   @page {
     size: A4;
     /* Sin margen de pagina: los margenes ya estan dentro del documento
-       (18 mm arriba/abajo, 16 mm a los lados). Dejarselos tambien a la
+       (14 mm arriba/abajo, 13 mm a los lados). Dejarselos tambien a la
        impresora los sumaria dos veces. */
     margin: 0;
+  }
+
+  /* --------------------------------------------------------------
+     LOS COLORES DEL DOCUMENTO SI SE IMPRIMEN
+
+     Por defecto WebKit DESCARTA todo fondo de color al imprimir. Es
+     una decision suya para ahorrar tinta cuando alguien imprime una
+     pagina web, y para una pagina web esta bien; para una factura no:
+     las bandas de la cabecera, la fila de conceptos y la tabla del
+     total salian invisibles, y el PDF llegaba al cliente en blanco y
+     negro con el diseno a medias.
+
+     `print-color-adjust: exact` es la forma de decirle que esos
+     colores NO son decoracion, son el documento. Va sobre todos los
+     elementos porque el color esta en las celdas de las tablas, no en
+     un contenedor unico, y con `!important` porque compite con la
+     regla interna del motor.
+
+     El prefijo -webkit- va primero: es el que entiende la version de
+     WebKit que trae macOS, y el estandar sin prefijo queda para
+     cuando deje de hacer falta.
+     -------------------------------------------------------------- */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   html, body {

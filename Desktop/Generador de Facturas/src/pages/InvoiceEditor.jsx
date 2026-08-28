@@ -258,8 +258,18 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
           </div>
         </div>
 
-        {/* Vista previa: el documento a escala, en su proporcion real de A4 */}
-        <div className="flex-1 min-w-0 overflow-y-auto bg-line/40">
+        {/* Vista previa: el documento a escala, en su proporcion real de A4.
+            `overflow-y-scroll` y no `auto`: la barra de scroll se reserva
+            SIEMPRE, aparezca o no. Con `auto`, aparecer y desaparecer
+            cambiaba el ancho del panel 10 px, eso cambiaba la escala del
+            documento, la nueva escala cambiaba su altura y la altura volvia
+            a decidir si hacia falta barra. El resultado era un temblor
+            continuo. Reservando el hueco, el ancho ya no depende de nada
+            que la escala pueda mover. */}
+        <div
+          className="flex-1 min-w-0 overflow-y-scroll bg-line/40"
+          style={{ scrollbarGutter: 'stable' }}
+        >
           <div className="p-6">
             <DocumentPreview>
               <InvoiceDocument
