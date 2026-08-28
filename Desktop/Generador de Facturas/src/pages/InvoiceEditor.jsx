@@ -6,6 +6,7 @@ import Field, { inputClass, textareaClass } from '../components/ui/Field.jsx'
 import ClientSection from '../components/invoice/ClientSection.jsx'
 import ItemsTable from '../components/invoice/ItemsTable.jsx'
 import TotalsSection from '../components/invoice/TotalsSection.jsx'
+import DocumentMeta from '../components/invoice/DocumentMeta.jsx'
 import InvoiceDocument from '../components/pdf/InvoiceDocument.jsx'
 import DocumentPreview from '../components/pdf/DocumentPreview.jsx'
 import PrintArea from '../components/pdf/PrintArea.jsx'
@@ -221,6 +222,8 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
               </Field>
             </section>
 
+            <DocumentMeta borrador={borrador} onChange={actualizar} />
+
             <ItemsTable
               items={borrador.items}
               moneda={borrador.currency_symbol}
@@ -235,7 +238,7 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
             />
 
             <section className="grid grid-cols-2 gap-3">
-              <Field label="Forma de pago">
+              <Field label="Información de pago">
                 <textarea
                   className={textareaClass}
                   value={borrador.payment_details}
@@ -243,7 +246,7 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
                   placeholder="Banco, cuenta, transferencia…"
                 />
               </Field>
-              <Field label="Notas">
+              <Field label="Términos y condiciones">
                 <textarea
                   className={textareaClass}
                   value={borrador.notes}

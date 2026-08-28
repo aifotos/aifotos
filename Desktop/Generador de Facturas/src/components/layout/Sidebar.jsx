@@ -1,4 +1,4 @@
-import { FileText, FileSignature, Users, Package, Settings, Plus } from 'lucide-react'
+import { FileText, FileSignature, Users, Package, Settings, Plus, LogOut } from 'lucide-react'
 import Button from '../ui/Button.jsx'
 
 const SECCIONES = [
@@ -18,7 +18,10 @@ const SECCIONES = [
  * sitio y el atributo convierte esa franja en zona de arrastre, para que la
  * ventana se pueda mover como cualquier otra app.
  */
-export default function Sidebar({ actual, onNavegar, onNuevaFactura, etiquetaNuevo = 'Nueva factura' }) {
+export default function Sidebar({
+  actual, onNavegar, onNuevaFactura, etiquetaNuevo = 'Nueva factura',
+  cuenta, negocio, onSalir,
+}) {
   return (
     <aside className="w-56 shrink-0 bg-canvas border-r border-line flex flex-col">
       {/* Hueco para los semaforos de macOS. El arrastre lo gestiona
@@ -62,8 +65,30 @@ export default function Sidebar({ actual, onNavegar, onNuevaFactura, etiquetaNue
         })}
       </nav>
 
-      <div className="p-3 text-[11px] text-ink-faint">
-        FacturaPro · datos guardados en este Mac
+      {/* Que cuenta esta abierta, siempre a la vista.
+          Es la unica pista de que estas facturando por el negocio que
+          crees: los dos historiales se ven identicos, y equivocarse de
+          cuenta solo se nota cuando la factura ya lleva el logo del otro. */}
+      <div className="p-3 border-t border-line">
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-ink truncate">
+              {negocio?.trim() || cuenta?.display_name}
+            </p>
+            <p className="text-[11px] text-ink-faint truncate">
+              {cuenta?.username} · datos en este Mac
+            </p>
+          </div>
+          <button
+            onClick={onSalir}
+            title="Cerrar sesión"
+            aria-label="Cerrar sesión"
+            className="size-8 shrink-0 rounded-lg flex items-center justify-center
+              text-ink-faint hover:text-ink hover:bg-line/60 transition-colors"
+          >
+            <LogOut className="size-4" strokeWidth={2} />
+          </button>
+        </div>
       </div>
     </aside>
   )

@@ -1,45 +1,54 @@
-import { queryOne, execute } from './index.js'
+import { queryOne, execute, cuentaActual } from './index.js'
 
 /**
- * Ajustes del emisor: tus datos, tu logo y la numeracion de las facturas.
- * Siempre es una sola fila, con id = 1.
+ * Ajustes del emisor: tus datos, tu logo, tus colores y tu numeracion.
+ *
+ * Hay una fila por cuenta. La lectura va por la vista `mis_ajustes`, que
+ * ya filtra por la sesion abierta, asi que aqui no hace falta acordarse de
+ * nada: si has entrado como remont, `get()` devuelve los ajustes de remont
+ * y no existe forma de que devuelva los del otro negocio.
  */
 
+/** Devuelve los ajustes de la cuenta abierta, o null si no hay sesion. */
 export function get() {
-  return queryOne(`SELECT * FROM settings WHERE id = 1`)
+  return queryOne(`SELECT * FROM mis_ajustes`)
 }
 
+const CAMPOS = [
+  'business_name', 'tax_id', 'email', 'phone', 'address', 'website',
+  'logo_data_url', 'accent_color', 'currency_symbol', 'invoice_prefix',
+  'number_padding', 'next_invoice_number', 'payment_terms_days',
+  'default_notes', 'payment_details', 'default_user',
+]
+
 export async function update(datos) {
+  const cuenta = await cuentaActual()
+  const valores = [
+    datos.business_name ?? '',
+    datos.tax_id ?? '',
+    datos.email ?? '',
+    datos.phone ?? '',
+    datos.address ?? '',
+    datos.website ?? '',
+    // Cadena vacia y NULL significan lo mismo aqui —sin logo— y conviene
+    // que la base guarde solo una de las dos formas.
+    datos.logo_data_url || null,
+    datos.accent_color || '#F5C851',
+    datos.currency_symbol ?? 'RD$',
+    datos.invoice_prefix ?? '',
+    Math.min(9, Math.max(1, Number(datos.number_padding) || 4)),
+    Math.max(1, Number(datos.next_invoice_number) || 1),
+    Math.max(0, Number(datos.payment_terms_days) || 0),
+    datos.default_notes ?? '',
+    datos.payment_details ?? '',
+    datos.default_user ?? '',
+  ]
   await execute(
     `UPDATE settings SET
-       business_name      = $1,
-       tax_id             = $2,
-       email              = $3,
-       phone              = $4,
-       address            = $5,
-       website            = $6,
-       logo_data_url      = $7,
-       currency_symbol    = $8,
-       invoice_prefix     = $9,
-       payment_terms_days = $10,
-       default_notes      = $11,
-       payment_details    = $12,
-       updated_at         = datetime('now')
-     WHERE id = 1`,
-    [
-      datos.business_name ?? '',
-      datos.tax_id ?? '',
-      datos.email ?? '',
-      datos.phone ?? '',
-      datos.address ?? '',
-      datos.website ?? '',
-      datos.logo_data_url ?? null,
-      datos.currency_symbol ?? 'RD$',
-      datos.invoice_prefix ?? 'FAC-',
-      datos.payment_terms_days ?? 15,
-      datos.default_notes ?? '',
-      datos.payment_details ?? '',
-    ],
+       ${CAMPOS.map((c, i) => `${c} = $${i + 1}`).join(', ')},
+       updated_at = datetime('now')
+     WHERE account_id = $${CAMPOS.length + 1}`,
+    [...valores, cuenta],
   )
   return get()
 }
@@ -48,36 +57,33 @@ export async function update(datos) {
  * Siguiente numero disponible, SIN consumirlo.
  *
  * Se usa para mostrar "FAC-0008" mientras escribes una factura que todavia
- * no has guardado. El numero solo se reserva de verdad al guardar
- * (ver `consumeNumber`), para no dejar huecos si cierras sin guardar.
+ * no has guardado. El numero solo se reserva de verdad al emitir.
  */
 export async function peekNextNumber() {
   const s = await get()
-  return formatNumber(s.invoice_prefix, s.next_invoice_number)
+  return formatNumber(s.invoice_prefix, s.next_invoice_number, s.number_padding)
 }
 
 /**
  * Reserva el siguiente numero de factura y avanza el contador.
  *
- * El `WHERE next_invoice_number = $1` es un seguro: si otra parte de la app
+ * El `WHERE next_invoice_number = $2` es un seguro: si otra parte de la app
  * reservo un numero entre la lectura y la escritura, este UPDATE no afecta
  * ninguna fila y volvemos a intentarlo con el valor nuevo. Asi nunca salen
  * dos facturas con el mismo numero.
  *
- * Solo se llama al EMITIR. Los borradores usan `consumeDraftNumber`, para
- * que un borrador que nunca llegas a emitir no deje un hueco permanente
- * en la numeracion fiscal.
+ * Cada cuenta lleva su propia serie, y son independientes: que remont vaya
+ * por la 00025 no adelanta la numeracion de aifotos ni al reves.
  */
 export async function consumeNumber() {
-  return reservar('next_invoice_number', (s) => s.invoice_prefix)
+  return reservar('next_invoice_number', (s) => s.invoice_prefix, (s) => s.number_padding)
 }
 
 /**
  * Reserva el siguiente numero de cotizacion: 'COT-0003'.
  *
  * Secuencia aparte de la fiscal: cotizar no puede gastar correlativo de
- * facturas. Y al reves que las facturas, aqui un hueco no importa —
- * la numeracion de presupuestos no la mira Hacienda.
+ * facturas.
  */
 export async function consumeQuoteNumber() {
   return reservar('next_quote_number', () => PREFIJO_COTIZACION)
@@ -88,9 +94,9 @@ export const PREFIJO_COTIZACION = 'COT-'
 /**
  * Numero interno de un borrador: 'BOR-0003'.
  *
- * Existe solo para cumplir la restriccion UNIQUE de `invoices.number`.
- * En pantalla un borrador se muestra como "Borrador", nunca con este
- * codigo, y al emitirlo se sustituye por el numero real.
+ * Existe solo para cumplir la restriccion UNIQUE de `invoices`. En pantalla
+ * un borrador se muestra como "Borrador", nunca con este codigo, y al
+ * emitirlo se sustituye por el numero real.
  */
 export async function consumeDraftNumber() {
   return reservar('next_draft_number', () => PREFIJO_BORRADOR)
@@ -102,26 +108,34 @@ export const PREFIJO_BORRADOR = 'BOR-'
  * ¿Este numero es el de un borrador sin emitir?
  *
  * Lo comparten facturas y cotizaciones: mientras es borrador, un documento
- * usa 'BOR-0003' y solo al emitirlo o enviarlo recibe su 'FAC-' o 'COT-'.
+ * usa 'BOR-0003' y solo al emitirlo o enviarlo recibe su numero real.
  */
 export function esBorrador(number) {
   return !number || String(number).startsWith(PREFIJO_BORRADOR)
 }
 
-async function reservar(columna, prefijoDe) {
+async function reservar(columna, prefijoDe, anchoDe = () => 4) {
+  const cuenta = await cuentaActual()
   for (let intento = 0; intento < 5; intento++) {
     const s = await get()
+    if (!s) throw new Error('No hay ninguna sesión abierta')
     const actual = s[columna]
     const { rowsAffected } = await execute(
-      `UPDATE settings SET ${columna} = $1 WHERE id = 1 AND ${columna} = $2`,
-      [actual + 1, actual],
+      `UPDATE settings SET ${columna} = $1
+        WHERE account_id = $2 AND ${columna} = $3`,
+      [actual + 1, cuenta, actual],
     )
-    if (rowsAffected > 0) return formatNumber(prefijoDe(s), actual)
+    if (rowsAffected > 0) return formatNumber(prefijoDe(s), actual, anchoDe(s))
   }
   throw new Error('No se pudo reservar un numero')
 }
 
-/** 'FAC-' + 7 -> 'FAC-0007' (4 digitos minimo, crece solo si hace falta) */
-export function formatNumber(prefix, n) {
-  return `${prefix}${String(n).padStart(4, '0')}`
+/**
+ * 'FAC-' + 7 -> 'FAC-0007'.  '' + 24 con ancho 5 -> '00024'.
+ *
+ * El ancho es de cada cuenta: aifotos numera 'FAC-0001' y remont '00025',
+ * que es como venia numerando antes de esta app.
+ */
+export function formatNumber(prefix, n, ancho = 4) {
+  return `${prefix ?? ''}${String(n).padStart(Math.min(9, Math.max(1, ancho || 4)), '0')}`
 }

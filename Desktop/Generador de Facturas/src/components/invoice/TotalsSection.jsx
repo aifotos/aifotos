@@ -1,17 +1,50 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
+import { X } from 'lucide-react'
+import Picker from '../ui/Picker.jsx'
+import TaxRuleDialog from './TaxRuleDialog.jsx'
 import { formatAmount, formatMoney, toCents } from '../../lib/money.js'
+import * as taxes from '../../db/taxes.js'
 
 /**
- * Subtotal, descuento y total.
+ * La liquidacion del documento: bruto, descuento, impuestos, retenciones
+ * y el importe neto.
  *
- * El descuento admite dos formas y se guardan distinto: como importe fijo
- * son centavos (50000 = RD$ 500.00); como porcentaje son centesimas de
- * punto (1000 = 10.00 %). Enteros en ambos casos, sin decimales flotantes.
+ * Sigue el mismo orden que se imprime, y a proposito: si aqui las
+ * retenciones aparecieran antes que los impuestos, tendrias que
+ * reordenarlas mentalmente cada vez que compruebas que la factura cuadra.
+ *
+ * Los impuestos no vienen puestos de serie aunque los tengas en el
+ * catalogo. Hay clientes que retienen y clientes que no, y una casilla que
+ * ya viene marcada se pasa por alto mucho mas facil que una que falta.
  */
 export default function TotalsSection({ borrador, totales, moneda, onChange }) {
   const [editando, setEditando] = useState(null)
+  const [dialogo, setDialogo] = useState(null)
+  const [recargar, setRecargar] = useState(0)
+
   const esPorcentaje = borrador.discount_type === 'percent'
   const hayDescuento = borrador.discount_type !== 'none'
+  const aplicados = borrador.adjustments ?? []
+
+  // Las reglas ya aplicadas no se ofrecen otra vez: sumar dos veces el
+  // mismo ITBIS es un error que no tiene ningun uso legitimo.
+  //
+  // La dependencia es una CADENA con los ids, no el array. Con el array,
+  // `buscar` cambiaria de identidad en cada renderizado, el efecto que la
+  // llama dentro del Picker volveria a dispararse, ese efecto pinta y
+  // vuelve a renderizar: un bucle infinito con la lista abierta.
+  const idsAplicados = aplicados.map((a) => a.rule_id).filter(Boolean).join(',')
+  const buscar = useCallback(
+    async (t) => {
+      const puestas = new Set(idsAplicados.split(',').filter(Boolean).map(Number))
+      const todas = await taxes.listar()
+      const texto = t.trim().toLowerCase()
+      return todas.filter(
+        (r) => !puestas.has(r.id) && (!texto || r.name.toLowerCase().includes(texto)),
+      )
+    },
+    [idsAplicados],
+  )
 
   function valorMostrado() {
     if (editando !== null) return editando
@@ -38,9 +71,35 @@ export default function TotalsSection({ borrador, totales, moneda, onChange }) {
     setEditando(null)
   }
 
+  /**
+   * Aplica una regla al documento como COPIA, no como referencia.
+   *
+   * Si manana editas el ITBIS en el catalogo, este documento conserva la
+   * tasa con la que se hizo. Es la misma decision que congelar los datos
+   * del cliente en la factura.
+   */
+  function aplicar(regla) {
+    onChange({
+      adjustments: [
+        ...aplicados,
+        {
+          key: crypto.randomUUID(),
+          rule_id: regla.id,
+          name: regla.name,
+          kind: regla.kind,
+          base: regla.base,
+          rate_bp: regla.rate_bp,
+        },
+      ],
+    })
+  }
+
+  const quitar = (a) =>
+    onChange({ adjustments: aplicados.filter((x) => (x.key ?? x.id) !== (a.key ?? a.id)) })
+
   return (
     <section className="ml-auto w-full max-w-xs space-y-2">
-      <Fila etiqueta="Subtotal" valor={formatMoney(totales.subtotal_cents, moneda)} />
+      <Fila etiqueta="Importe bruto" valor={formatMoney(totales.subtotal_cents, moneda)} />
 
       {hayDescuento ? (
         <div className="flex items-center justify-between gap-2">
@@ -80,12 +139,69 @@ export default function TotalsSection({ borrador, totales, moneda, onChange }) {
         </button>
       )}
 
+      {totales.impuestos.map((a) => (
+        <Ajuste key={a.key ?? a.id} ajuste={a} moneda={moneda} onQuitar={() => quitar(a)} />
+      ))}
+
+      {/* El subtotal intermedio solo tiene sentido si hay algo que sumar
+          por encima; si no, repetiria el importe bruto. */}
+      {totales.impuestos.length > 0 && (
+        <Fila
+          etiqueta="Subtotal"
+          valor={formatMoney(totales.base_cents + totales.tax_cents, moneda)}
+        />
+      )}
+
+      {totales.retenciones.map((a) => (
+        <Ajuste key={a.key ?? a.id} ajuste={a} moneda={moneda} onQuitar={() => quitar(a)} />
+      ))}
+
+      <Picker
+        valor={null}
+        buscar={buscar}
+        recargar={recargar}
+        onElegir={aplicar}
+        onCrear={(texto) => setDialogo({ regla: null, nombreInicial: texto })}
+        placeholder="Añadir impuesto o retención"
+        etiquetaCrear="Crear impuesto o retención"
+        className="h-9 text-[13px]"
+      >
+        {(r) => (
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm text-ink truncate">
+              <span className={r.kind === 'tax' ? 'text-paid-ink' : 'text-overdue-ink'}>
+                {taxes.TIPOS[r.kind].signo}
+              </span>{' '}
+              {r.name}
+            </span>
+            <span className="text-xs text-ink-faint tabular-nums whitespace-nowrap">
+              {r.base === 'fixed' ? formatMoney(r.rate_bp, moneda) : taxes.formatoTasa(r)}
+              {r.base === 'taxes' && ' del ITBIS'}
+            </span>
+          </div>
+        )}
+      </Picker>
+
       <div className="pt-2 border-t border-line flex items-center justify-between">
-        <span className="text-sm font-semibold text-ink">Total</span>
+        <span className="text-sm font-semibold text-ink">Importe neto</span>
         <span className="text-xl font-semibold text-ink tabular-nums tracking-tight">
           {formatMoney(totales.total_cents, moneda)}
         </span>
       </div>
+
+      <TaxRuleDialog
+        abierto={!!dialogo}
+        regla={dialogo?.regla ?? null}
+        nombreInicial={dialogo?.nombreInicial ?? ''}
+        moneda={moneda}
+        onCerrar={() => setDialogo(null)}
+        onGuardado={(r) => {
+          // Se crea y se aplica de una vez: si has abierto el formulario
+          // desde la factura, es porque la quieres en ESTA factura.
+          aplicar(r)
+          setRecargar((n) => n + 1)
+        }}
+      />
     </section>
   )
 }
@@ -95,6 +211,30 @@ function Fila({ etiqueta, valor }) {
     <div className="flex items-center justify-between">
       <span className="text-sm text-ink-soft">{etiqueta}</span>
       <span className="text-sm text-ink tabular-nums">{valor}</span>
+    </div>
+  )
+}
+
+function Ajuste({ ajuste, moneda, onQuitar }) {
+  const resta = ajuste.kind === 'retention'
+  return (
+    <div className="flex items-center justify-between gap-2 group">
+      <span className="text-sm text-ink-soft truncate flex items-center gap-1">
+        <button
+          onClick={onQuitar}
+          aria-label={`Quitar ${ajuste.name}`}
+          className="size-4 rounded shrink-0 flex items-center justify-center text-ink-faint
+            opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+            hover:text-overdue-ink transition"
+        >
+          <X className="size-3" strokeWidth={2.5} />
+        </button>
+        <span className="truncate">{ajuste.name}</span>
+      </span>
+      <span className="text-sm text-ink-soft tabular-nums whitespace-nowrap">
+        {resta ? '−' : '+'}
+        {formatMoney(ajuste.amount_cents, moneda)}
+      </span>
     </div>
   )
 }

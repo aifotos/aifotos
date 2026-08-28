@@ -107,6 +107,33 @@ export async function atomico(sentencias) {
 }
 
 /**
+ * La cuenta de la sesion abierta (aifotos o remont), en memoria.
+ *
+ * Las LECTURAS no la necesitan: pasan por vistas que ya filtran por la
+ * sesion guardada en la base. Esto es para las ESCRITURAS, que si tienen
+ * que decir de quien es la fila que estan creando, y para no consultar la
+ * tabla `sesion` en cada INSERT de cada linea de cada factura.
+ *
+ * La fija `db/auth.js` al entrar y al salir. Si por lo que sea no esta
+ * puesta, se lee de la base: mas lento, pero nunca escribe sin dueno.
+ */
+let cuentaEnMemoria = null
+
+export function fijarCuenta(accountId) {
+  cuentaEnMemoria = accountId
+}
+
+export async function cuentaActual() {
+  if (cuentaEnMemoria != null) return cuentaEnMemoria
+  const fila = await queryOne(`SELECT account_id FROM sesion WHERE id = 1`)
+  cuentaEnMemoria = fila?.account_id ?? null
+  if (cuentaEnMemoria == null) {
+    throw new Error('No hay ninguna sesión abierta')
+  }
+  return cuentaEnMemoria
+}
+
+/**
  * Clave de deduplicacion para nombres de clientes y servicios.
  * "  JUAN   Pérez " y "juan pérez" deben ser el mismo registro.
  */

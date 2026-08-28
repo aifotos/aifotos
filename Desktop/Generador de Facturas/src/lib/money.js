@@ -115,3 +115,79 @@ export function invoiceTotals(items, discountType = 'none', discountValue = 0) {
     total_cents: subtotal - descuento,
   }
 }
+
+// ------------------------------------------------- IMPUESTOS Y RETENCIONES
+
+/**
+ * Aplica una regla de impuesto o retencion y devuelve su importe en centavos.
+ *
+ *   base 'subtotal'  un % del importe bruto ya descontado
+ *   base 'taxes'     un % de los impuestos sumados (asi se dice "me retienen
+ *                    el 100 % del ITBIS" sin tener que calcularlo a mano)
+ *   base 'fixed'     un importe fijo; ahi `rate_bp` son centavos, no un %
+ */
+export function adjustmentAmount(regla, baseCents, taxCents) {
+  const tasa = Number(regla.rate_bp) || 0
+  if (regla.base === 'fixed') return Math.max(0, Math.round(tasa))
+  const sobre = regla.base === 'taxes' ? taxCents : baseCents
+  return Math.round((sobre * tasa) / 10000)
+}
+
+/**
+ * Totales completos de un documento, con impuestos y retenciones.
+ *
+ * El orden no es un detalle: los impuestos se calculan primero porque las
+ * retenciones pueden apoyarse en ellos, y no al reves. Es exactamente como
+ * se lee el pie de la factura de arriba abajo:
+ *
+ *   Importe bruto      suma de las lineas
+ *   − Descuento
+ *   = Base imponible
+ *   + Impuestos        ITBIS 18 %…
+ *   = Subtotal
+ *   − Retenciones      ITBIS retenido, ISR 2 %…
+ *   = Importe neto     lo que el cliente paga de verdad
+ *
+ * Devuelve tambien `ajustes`, cada regla con su importe ya calculado: es la
+ * misma lista que se pinta en el documento y la que se guarda en la base,
+ * asi que lo que ves impreso y lo que queda guardado no pueden discrepar.
+ */
+export function documentTotals(items, discountType = 'none', discountValue = 0, adjustments = []) {
+  const { subtotal_cents, discount_cents } = invoiceTotals(items, discountType, discountValue)
+  const base = subtotal_cents - discount_cents
+
+  const impuestos = []
+  let tax_cents = 0
+  for (const a of adjustments) {
+    if (a.kind !== 'tax') continue
+    // Un impuesto con base 'taxes' se apoya en los impuestos que ya se han
+    // sumado ANTES que el, no en el total final: si no, dependeria de si
+    // mismo.
+    const amount_cents = adjustmentAmount(a, base, tax_cents)
+    tax_cents += amount_cents
+    impuestos.push({ ...a, amount_cents })
+  }
+
+  const retenciones = []
+  let retention_cents = 0
+  for (const a of adjustments) {
+    if (a.kind !== 'retention') continue
+    const amount_cents = adjustmentAmount(a, base, tax_cents)
+    retention_cents += amount_cents
+    retenciones.push({ ...a, amount_cents })
+  }
+
+  return {
+    subtotal_cents,
+    discount_cents,
+    base_cents: base,
+    tax_cents,
+    retention_cents,
+    // Lo que se cobra. Sigue llamandose total_cents porque es lo que suma
+    // el panel, y lo que el panel debe sumar es el importe neto.
+    total_cents: base + tax_cents - retention_cents,
+    impuestos,
+    retenciones,
+    ajustes: [...impuestos, ...retenciones],
+  }
+}

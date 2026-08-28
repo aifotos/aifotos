@@ -1,13 +1,19 @@
-import { query, queryOne, execute, atomico } from './index.js'
-import { invoiceTotals, lineTotal } from '../lib/money.js'
+import { query, queryOne, execute, atomico, cuentaActual } from './index.js'
+import { documentTotals, lineTotal } from '../lib/money.js'
 import * as clients from './clients.js'
 import * as services from './services.js'
 import * as settings from './settings.js'
 
 /**
- * Facturas. Aqui vive la operacion mas importante de la app: guardar una
- * factura completa (cabecera + lineas + alta silenciosa de cliente y
- * servicios) como una sola transaccion atomica.
+ * Facturas y cotizaciones. Aqui vive la operacion mas importante de la app:
+ * guardar un documento completo (cabecera + lineas + impuestos) como una
+ * sola transaccion atomica.
+ *
+ * Todo lo que se lee pasa por una vista (`facturas`, `cotizaciones`,
+ * `mis_documentos`), nunca por la tabla `invoices`. Las vistas filtran por
+ * tipo Y por la cuenta de la sesion, asi que ni una cotizacion puede
+ * colarse en las cifras de dinero ni una factura de remont puede aparecer
+ * en el historial de aifotos.
  */
 
 /**
@@ -46,9 +52,6 @@ function vista(kind) {
 
 /**
  * Listado del Dashboard, con filtro opcional por estado y busqueda.
- *
- * Lee de la vista, no de la tabla: asi una cotizacion no puede aparecer
- * jamas en el listado de facturas por un filtro olvidado.
  */
 export function list({ kind = 'invoice', status = null, search = '', limit = 200 } = {}) {
   const t = search.trim().toLowerCase()
@@ -64,15 +67,23 @@ export function list({ kind = 'invoice', status = null, search = '', limit = 200
   )
 }
 
-/** Una factura con sus lineas, lista para abrir en el editor o imprimir. */
+/**
+ * Un documento con sus lineas y sus impuestos, listo para abrir o imprimir.
+ */
 export async function getFull(id) {
-  const invoice = await queryOne(`SELECT * FROM invoices WHERE id = $1`, [id])
+  const invoice = await queryOne(`SELECT * FROM mis_documentos WHERE id = $1`, [id])
   if (!invoice) return null
-  const items = await query(
-    `SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY position ASC, id ASC`,
-    [id],
-  )
-  return { ...invoice, items }
+  const [items, adjustments] = await Promise.all([
+    query(
+      `SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY position ASC, id ASC`,
+      [id],
+    ),
+    query(
+      `SELECT * FROM invoice_adjustments WHERE invoice_id = $1 ORDER BY position ASC, id ASC`,
+      [id],
+    ),
+  ])
+  return { ...invoice, items, adjustments }
 }
 
 /** Tarjetas de resumen del Dashboard. */
@@ -96,9 +107,7 @@ export function summary() {
  *
  * "Valor cotizado" cuenta SOLO las que siguen vigentes. Una cotizacion
  * caducada sigue con status 'sent' en la base, pero meterla en esa cifra
- * seria presentar como cartera viva un presupuesto que ya expiro — la
- * misma clase de error que contar cotizaciones como dinero por cobrar,
- * solo que mas pequeno. Las caducadas tienen su propia tarjeta.
+ * seria presentar como cartera viva un presupuesto que ya expiro.
  */
 export function summaryQuotes() {
   const vigente = `(due_date IS NULL OR due_date >= date('now'))`
@@ -115,14 +124,7 @@ export function summaryQuotes() {
   )
 }
 
-/**
- * Una factura pendiente cuya fecha de vencimiento ya paso: es una deuda.
- *
- * Distinto de una cotizacion caducada (`estaCaducada`), que no es dinero
- * que te deban sino un presupuesto que dejo de estar vigente. Comparten
- * el campo `due_date` pero no significan lo mismo, y por eso no comparten
- * ni funcion ni color.
- */
+/** Una factura pendiente cuya fecha de vencimiento ya paso: es una deuda. */
 export function isOverdue(invoice) {
   if (invoice.kind === 'quote') return false
   if (invoice.status !== 'pending' || !invoice.due_date) return false
@@ -143,18 +145,19 @@ export function estaConvertida(doc) {
 // -------------------------------------------------------------- GUARDADO
 
 /**
- * Guarda una factura entera. Es la unica funcion que deberia usar el editor.
+ * Guarda un documento entero. Es la unica funcion que deberia usar el editor.
  *
- * En una sola transaccion: recalcula los totales desde las lineas (nunca
- * confia en el total que venga del formulario), guarda la cabecera y
- * reemplaza las lineas. Si algo falla, no se guarda nada.
+ * En una sola transaccion: recalcula los totales desde las lineas y las
+ * reglas de impuesto (nunca confia en el total que venga del formulario),
+ * guarda la cabecera, reemplaza las lineas y reemplaza los impuestos
+ * aplicados. Si algo falla, no se guarda nada.
  *
  * NO da de alta clientes ni servicios. Eso lo hace `aprender()`, y solo
- * cuando la factura se emite — ver el comentario de esa funcion.
+ * cuando el documento se emite — ver el comentario de esa funcion.
  *
  * @param {object} borrador  Estado del formulario
- * @param {number|null} borrador.id  null para una factura nueva
- * @returns {Promise<object>} La factura guardada, con sus lineas
+ * @param {number|null} borrador.id  null para un documento nuevo
+ * @returns {Promise<object>} El documento guardado, con lineas e impuestos
  */
 export async function save(borrador) {
   const {
@@ -162,6 +165,7 @@ export async function save(borrador) {
     kind = 'invoice',
     client = {},
     items = [],
+    adjustments = [],
     issue_date,
     due_date = null,
     status = 'draft',
@@ -170,24 +174,31 @@ export async function save(borrador) {
     notes = '',
     payment_details = '',
     currency_symbol = 'RD$',
+    service_place = '',
+    service_date_text = '',
+    credit_terms = '',
+    quote_ref = '',
+    prepared_by = '',
   } = borrador
+
+  const cuenta = await cuentaActual()
 
   // Las lineas vacias no llegan a la base de datos.
   const lineas = items.filter(
     (it) => String(it.description ?? '').trim() !== '' || it.unit_price_cents > 0,
   )
 
-  const totales = invoiceTotals(lineas, discount_type, discount_value)
+  const totales = documentTotals(lineas, discount_type, discount_value, adjustments)
 
   // El numero se resuelve ANTES de la transaccion: las funciones de reserva
-  // hacen su propio UPDATE condicional y no deben deshacerse si la factura
+  // hacen su propio UPDATE condicional y no deben deshacerse si el guardado
   // falla (es preferible un hueco que un numero duplicado).
   //
   //   borrador nuevo        -> BOR-0003 (interno, no gasta correlativo)
-  //   borrador que sigue     -> conserva su BOR-0003
-  //   al emitir una factura  -> se reserva el FAC-0007 fiscal
-  //   al enviar una cotiz.   -> se reserva el COT-0003, secuencia aparte
-  //   documento ya emitido   -> nunca cambia de numero
+  //   borrador que sigue    -> conserva su BOR-0003
+  //   al emitir una factura -> se reserva el numero fiscal
+  //   al enviar una cotiz.  -> se reserva el COT-0003, secuencia aparte
+  //   documento ya emitido  -> nunca cambia de numero
   let number = borrador.number ?? null
   if (status === 'draft') {
     if (!number) number = await settings.consumeDraftNumber()
@@ -207,10 +218,13 @@ export async function save(borrador) {
   // fallara para dejar escrito todo lo anterior: cabecera con su total y
   // cero lineas.
   //
-  // Las lineas se enganchan a la factura por su `number`, que es UNIQUE, y
-  // no por el id: dentro de un lote no se puede leer el id que acaba de
-  // generar el INSERT anterior, y el numero ya lo conocemos aqui.
-  const porNumero = `(SELECT id FROM invoices WHERE number = ?)`
+  // Las lineas se enganchan al documento por su numero, y no por el id:
+  // dentro de un lote no se puede leer el id que acaba de generar el INSERT
+  // anterior, y el numero ya lo conocemos aqui. Va con la cuenta porque el
+  // numero solo es unico DENTRO de cada cuenta: sin el `account_id`, la
+  // factura 00025 de remont podria engancharse a la de aifotos.
+  const porNumero = `(SELECT id FROM invoices WHERE account_id = ? AND number = ?)`
+  const clave = [cuenta, number]
 
   const campos = [
     kind,
@@ -224,10 +238,17 @@ export async function save(borrador) {
     due_date,
     status,
     status === 'paid' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
+    service_place ?? '',
+    service_date_text ?? '',
+    credit_terms ?? '',
+    quote_ref ?? '',
+    prepared_by ?? '',
     totales.subtotal_cents,
     discount_type,
     discount_value,
     totales.discount_cents,
+    totales.tax_cents,
+    totales.retention_cents,
     totales.total_cents,
     currency_symbol,
     notes,
@@ -243,42 +264,51 @@ export async function save(borrador) {
               client_id = ?, client_name = ?, client_email = ?, client_phone = ?,
               client_address = ?, client_tax_id = ?, issue_date = ?, due_date = ?,
               status = ?, paid_at = COALESCE(paid_at, ?),
+              service_place = ?, service_date_text = ?, credit_terms = ?,
+              quote_ref = ?, prepared_by = ?,
               subtotal_cents = ?, discount_type = ?, discount_value = ?,
-              discount_cents = ?, total_cents = ?, currency_symbol = ?,
-              notes = ?, payment_details = ?
-            WHERE id = ?`,
-      params: [number, ...campos, id],
+              discount_cents = ?, tax_cents = ?, retention_cents = ?,
+              total_cents = ?, currency_symbol = ?, notes = ?, payment_details = ?
+            WHERE id = ? AND account_id = ?`,
+      params: [number, ...campos, id, cuenta],
     })
   } else {
     sentencias.push({
       sql: `INSERT INTO invoices
-              (number, kind, client_id, client_name, client_email, client_phone,
-               client_address, client_tax_id, issue_date, due_date, status, paid_at,
-               subtotal_cents, discount_type, discount_value, discount_cents,
+              (account_id, number, kind, client_id, client_name, client_email,
+               client_phone, client_address, client_tax_id, issue_date, due_date,
+               status, paid_at, service_place, service_date_text, credit_terms,
+               quote_ref, prepared_by, subtotal_cents, discount_type,
+               discount_value, discount_cents, tax_cents, retention_cents,
                total_cents, currency_symbol, notes, payment_details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      params: [number, ...campos],
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [cuenta, number, ...campos],
     })
   }
 
-  // Las lineas se reemplazan enteras: mas simple y mas seguro que intentar
-  // casar cual cambio, y son pocas filas.
+  // Lineas e impuestos se reemplazan enteros: mas simple y mas seguro que
+  // intentar casar cual cambio, y son pocas filas.
   sentencias.push({
     sql: `DELETE FROM invoice_items WHERE invoice_id = ${porNumero}`,
-    params: [number],
+    params: [...clave],
+  })
+  sentencias.push({
+    sql: `DELETE FROM invoice_adjustments WHERE invoice_id = ${porNumero}`,
+    params: [...clave],
   })
 
   lineas.forEach((it, i) => {
     sentencias.push({
       sql: `INSERT INTO invoice_items
-              (invoice_id, service_id, position, description, quantity_milli,
-               unit, unit_price_cents, line_total_cents)
-            VALUES (${porNumero}, ?, ?, ?, ?, ?, ?, ?)`,
+              (invoice_id, service_id, position, description, detail,
+               quantity_milli, unit, unit_price_cents, line_total_cents)
+            VALUES (${porNumero}, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
-        number,
+        ...clave,
         it.service_id ?? null,
         i,
         String(it.description ?? '').trim(),
+        String(it.detail ?? '').trim(),
         it.quantity_milli,
         it.unit ?? 'unidad',
         it.unit_price_cents,
@@ -287,28 +317,52 @@ export async function save(borrador) {
     })
   })
 
+  // Se guarda el importe YA CALCULADO junto a la tasa, no solo la regla.
+  // Es la misma decision que congelar los datos del cliente: si manana
+  // cambias el ISR al 3 %, esta factura debe seguir diciendo lo que dijo el
+  // dia que la emitiste, porque es lo que el cliente pago.
+  totales.ajustes.forEach((a, i) => {
+    sentencias.push({
+      sql: `INSERT INTO invoice_adjustments
+              (invoice_id, rule_id, position, name, kind, base, rate_bp, amount_cents)
+            VALUES (${porNumero}, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        ...clave,
+        a.rule_id ?? null,
+        i,
+        a.name,
+        a.kind,
+        a.base,
+        a.rate_bp,
+        a.amount_cents,
+      ],
+    })
+  })
+
   await atomico(sentencias)
 
-  const guardada = await queryOne(`SELECT id FROM invoices WHERE number = $1`, [number])
+  const guardada = await queryOne(
+    `SELECT id FROM invoices WHERE account_id = $1 AND number = $2`,
+    [cuenta, number],
+  )
   if (!guardada) throw new Error(`No se pudo guardar ${number}`)
   const idFactura = guardada.id
 
   // Un documento que sale de borrador alimenta el CRM y el catalogo — sea
   // factura o cotizacion. Si le cotizas a alguien es un cliente real
-  // aunque todavia no te haya dicho que si, y no tiene sentido volver a
-  // teclear sus datos cuando acepte.
+  // aunque todavia no te haya dicho que si.
   if (status !== 'draft') await aprender(idFactura)
 
   return getFull(idFactura)
 }
 
 /**
- * Da de alta en el CRM y en el catalogo lo que aparece en una factura.
+ * Da de alta en el CRM y en el catalogo lo que aparece en un documento.
  *
  * Solo se llama al EMITIR, nunca durante el autoguardado de un borrador.
  * Es una distincion que importa: el autoguardado dispara mientras escribes,
  * asi que aprender ahi llenaria el catalogo con lo que hubiera a medio
- * teclear. Escribir "Video promocional" dejaria "vi", "vid", "video"...
+ * teclear. Escribir "Video promocional" dejaria "vi", "vid", "video"…
  * como servicios reales, y el autocompletado quedaria inservible en una
  * semana. Un borrador es una idea; una factura emitida es un hecho.
  */
@@ -347,18 +401,19 @@ async function aprender(invoiceId) {
 }
 
 /**
- * Recalcula `times_used` de clientes y servicios a partir de las facturas
+ * Recalcula `times_used` de clientes y servicios a partir de los documentos
  * reales, en lugar de ir sumando de uno en uno.
  *
  * Un contador que se incrementa se desincroniza en cuanto algo se guarda
  * dos veces, se edita una factura ya emitida o se borra una. Recalcularlo
- * es idempotente: da igual cuantas veces se ejecute, el numero siempre
- * refleja lo que hay. Son dos UPDATE sobre unas pocas filas.
+ * es idempotente: da igual cuantas veces se ejecute.
+ *
+ * Recorre las tablas crudas, no las vistas, y esta bien asi: un cliente de
+ * remont solo puede estar referenciado por documentos de remont, porque la
+ * factura y la ficha nacieron en la misma cuenta. Cada fila se cuenta con
+ * lo suyo aunque el UPDATE pase por todas.
  */
 export async function recomputarUso() {
-  // Cuenta facturas Y cotizaciones: para ordenar el autocompletado importa
-  // con quien trabajas, no si el papel era fiscal. (Aqui si se lee la
-  // tabla cruda a proposito, y es el unico sitio donde pasa.)
   await execute(
     `UPDATE clients SET
        times_used = (SELECT COUNT(*) FROM invoices
@@ -382,14 +437,14 @@ export async function recomputarUso() {
 // ------------------------------------------------------------ OPERACIONES
 
 /**
- * Cambia el estado de una factura.
+ * Cambia el estado de un documento.
  *
  * Si es la primera vez que sale de borrador, aqui es donde deja de ser
- * 'BOR-0003' y recibe su numero fiscal definitivo.
+ * 'BOR-0003' y recibe su numero definitivo.
  */
 export async function setStatus(id, status) {
   const actual = await queryOne(
-    `SELECT number, status, kind FROM invoices WHERE id = $1`,
+    `SELECT number, status, kind FROM mis_documentos WHERE id = $1`,
     [id],
   )
   if (!actual) return null
@@ -416,27 +471,31 @@ export async function setStatus(id, status) {
     [number, status, id],
   )
 
-  // Al dejar de ser borrador, la factura pasa a alimentar el CRM.
   if (actual.status === 'draft' && status !== 'draft') await aprender(id)
   else await recomputarUso()
 
   return getFull(id)
 }
 
-/** Borra la factura; sus lineas se van solas por ON DELETE CASCADE. */
+/** Borra el documento; sus lineas e impuestos se van por ON DELETE CASCADE. */
 export async function remove(id) {
-  const r = await execute(`DELETE FROM invoices WHERE id = $1`, [id])
+  const cuenta = await cuentaActual()
+  const r = await execute(
+    `DELETE FROM invoices WHERE id = $1 AND account_id = $2`,
+    [id, cuenta],
+  )
   await recomputarUso()
   return r
 }
 
-/** Duplica una factura como borrador nuevo, con numero nuevo y fecha de hoy. */
+/** Duplica un documento como borrador nuevo, con numero nuevo y fecha de hoy. */
 export async function duplicate(id) {
   const original = await getFull(id)
   if (!original) return null
   return save({
     id: null,
     number: null,   // el duplicado nace como borrador, con su propio numero
+    kind: original.kind,
     client: {
       name: original.client_name,
       email: original.client_email,
@@ -445,6 +504,7 @@ export async function duplicate(id) {
       tax_id: original.client_tax_id,
     },
     items: original.items,
+    adjustments: original.adjustments,
     issue_date: new Date().toISOString().slice(0, 10),
     due_date: null,
     status: 'draft',
@@ -453,5 +513,12 @@ export async function duplicate(id) {
     notes: original.notes,
     payment_details: original.payment_details,
     currency_symbol: original.currency_symbol,
+    service_place: original.service_place,
+    service_date_text: original.service_date_text,
+    credit_terms: original.credit_terms,
+    prepared_by: original.prepared_by,
+    // `quote_ref` NO se copia: la referencia a la cotizacion de origen es de
+    // aquel documento, no de esta copia. Un duplicado que dijera venir de la
+    // misma cotizacion haria pensar que se facturo dos veces lo mismo.
   })
 }

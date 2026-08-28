@@ -1,9 +1,11 @@
-import { query, queryOne, execute, nameKey } from './index.js'
+import { query, queryOne, execute, nameKey, cuentaActual } from './index.js'
 
 /**
- * Catalogo de productos y servicios. Igual que los clientes: se autoalimenta
- * desde las facturas. Escribes "Sesion fotografica — RD$ 15,000" una vez y
- * la proxima factura te lo sugiere con su precio.
+ * Catalogo de productos y servicios de la cuenta abierta.
+ *
+ * Como los clientes: se lee por la vista `mis_servicios`, asi que cada
+ * negocio tiene su propio catalogo. Los servicios de fotografia de aifotos
+ * y las partidas de obra de remont no se mezclan nunca.
  */
 
 /** Sugerencias para el autocompletado de la descripcion de una linea. */
@@ -11,7 +13,7 @@ export function search(termino = '', limite = 8) {
   const t = nameKey(termino)
   if (!t) {
     return query(
-      `SELECT * FROM services
+      `SELECT * FROM mis_servicios
        WHERE archived = 0
        ORDER BY times_used DESC, last_used_at DESC, name ASC
        LIMIT $1`,
@@ -19,7 +21,7 @@ export function search(termino = '', limite = 8) {
     )
   }
   return query(
-    `SELECT * FROM services
+    `SELECT * FROM mis_servicios
      WHERE archived = 0 AND (name_key LIKE $1 OR lower(description) LIKE $1)
      ORDER BY
        CASE WHEN name_key LIKE $2 THEN 0 ELSE 1 END,
@@ -31,7 +33,7 @@ export function search(termino = '', limite = 8) {
 
 export function listAll({ includeArchived = false } = {}) {
   return query(
-    `SELECT * FROM services
+    `SELECT * FROM mis_servicios
      WHERE ($1 = 1 OR archived = 0)
      ORDER BY times_used DESC, name ASC`,
     [includeArchived ? 1 : 0],
@@ -39,11 +41,11 @@ export function listAll({ includeArchived = false } = {}) {
 }
 
 export function getById(id) {
-  return queryOne(`SELECT * FROM services WHERE id = $1`, [id])
+  return queryOne(`SELECT * FROM mis_servicios WHERE id = $1`, [id])
 }
 
 export function getByName(name) {
-  return queryOne(`SELECT * FROM services WHERE name_key = $1`, [nameKey(name)])
+  return queryOne(`SELECT * FROM mis_servicios WHERE name_key = $1`, [nameKey(name)])
 }
 
 /**
@@ -59,14 +61,14 @@ export async function upsertByName({ name, description = '', unit_price_cents = 
   if (!limpio) return null
 
   const key = nameKey(limpio)
-  const existente = await queryOne(`SELECT * FROM services WHERE name_key = $1`, [key])
+  const existente = await queryOne(`SELECT * FROM mis_servicios WHERE name_key = $1`, [key])
 
   if (!existente) {
     const { lastInsertId } = await execute(
-      `INSERT INTO services (name, name_key, description, unit_price_cents, unit,
-                             times_used, last_used_at)
-       VALUES ($1, $2, $3, $4, $5, 1, datetime('now'))`,
-      [limpio, key, description, unit_price_cents, unit],
+      `INSERT INTO services (account_id, name, name_key, description,
+                             unit_price_cents, unit, times_used, last_used_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 1, datetime('now'))`,
+      [await cuentaActual(), limpio, key, description, unit_price_cents, unit],
     )
     return getById(lastInsertId)
   }

@@ -1,9 +1,15 @@
-import { query, queryOne, execute, nameKey } from './index.js'
+import { query, queryOne, execute, nameKey, cuentaActual } from './index.js'
 
 /**
- * Clientes. Se crean solos: cuando escribes un nombre nuevo en una factura,
- * `upsertByName` lo guarda en silencio para que la proxima vez aparezca
- * como sugerencia.
+ * Clientes de la cuenta abierta.
+ *
+ * Todas las lecturas van por la vista `mis_clientes`, que filtra por la
+ * sesion: los clientes de aifotos y los de remont son dos agendas que no
+ * se ven entre si, y no por un `WHERE` que haya que acordarse de escribir,
+ * sino porque la consulta no alcanza las otras filas.
+ *
+ * Las escrituras si tienen que decir de quien es la ficha, y para eso esta
+ * `cuentaActual()`.
  */
 
 /** Lista para el autocompletado: los mas usados primero. */
@@ -11,7 +17,7 @@ export function search(termino = '', limite = 8) {
   const t = nameKey(termino)
   if (!t) {
     return query(
-      `SELECT * FROM clients
+      `SELECT * FROM mis_clientes
        WHERE archived = 0
        ORDER BY times_used DESC, last_used_at DESC, name ASC
        LIMIT $1`,
@@ -19,7 +25,7 @@ export function search(termino = '', limite = 8) {
     )
   }
   return query(
-    `SELECT * FROM clients
+    `SELECT * FROM mis_clientes
      WHERE archived = 0 AND name_key LIKE $1
      ORDER BY
        CASE WHEN name_key LIKE $2 THEN 0 ELSE 1 END,  -- los que empiezan igual, primero
@@ -31,7 +37,7 @@ export function search(termino = '', limite = 8) {
 
 export function listAll({ includeArchived = false } = {}) {
   return query(
-    `SELECT * FROM clients
+    `SELECT * FROM mis_clientes
      WHERE ($1 = 1 OR archived = 0)
      ORDER BY name ASC`,
     [includeArchived ? 1 : 0],
@@ -39,11 +45,11 @@ export function listAll({ includeArchived = false } = {}) {
 }
 
 export function getById(id) {
-  return queryOne(`SELECT * FROM clients WHERE id = $1`, [id])
+  return queryOne(`SELECT * FROM mis_clientes WHERE id = $1`, [id])
 }
 
 export function getByName(name) {
-  return queryOne(`SELECT * FROM clients WHERE name_key = $1`, [nameKey(name)])
+  return queryOne(`SELECT * FROM mis_clientes WHERE name_key = $1`, [nameKey(name)])
 }
 
 /**
@@ -61,14 +67,15 @@ export async function upsertByName(datos) {
   if (!name) return null
 
   const key = nameKey(name)
-  const existente = await queryOne(`SELECT * FROM clients WHERE name_key = $1`, [key])
+  const existente = await queryOne(`SELECT * FROM mis_clientes WHERE name_key = $1`, [key])
 
   if (!existente) {
     const { lastInsertId } = await execute(
-      `INSERT INTO clients (name, name_key, email, phone, address, tax_id, notes,
-                            times_used, last_used_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 1, datetime('now'))`,
+      `INSERT INTO clients (account_id, name, name_key, email, phone, address,
+                            tax_id, notes, times_used, last_used_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, datetime('now'))`,
       [
+        await cuentaActual(),
         name,
         key,
         datos.email ?? '',

@@ -104,6 +104,11 @@ function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onQuita
   // (al teclear el punto, el valor volveria a "1500").
   const [editandoCant, setEditandoCant] = useState(null)
   const [editandoPrecio, setEditandoPrecio] = useState(null)
+  // El desglose esta escondido hasta que se pide. Una factura de
+  // fotografia no lo usa nunca y una de obra lo usa en casi todas las
+  // lineas; un campo siempre visible estorbaria a la mitad de los casos.
+  const [mostrarDetalle, setMostrarDetalle] = useState(false)
+  const hayDetalle = mostrarDetalle || !!item.detail?.trim()
 
   const total = lineTotal(item.quantity_milli, item.unit_price_cents)
 
@@ -119,7 +124,8 @@ function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onQuita
   }
 
   return (
-    <div className="grid grid-cols-[1fr_5rem_7rem_7rem_2.25rem] gap-2 px-3 py-1.5 items-center group">
+    <div className="px-3 py-1.5 group">
+     <div className="grid grid-cols-[1fr_5rem_7rem_7rem_2.25rem] gap-2 items-center">
       <Picker
         valor={item.description ? { name: item.description } : null}
         buscar={buscar}
@@ -186,6 +192,30 @@ function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onQuita
       >
         <Trash2 className="size-3.5" strokeWidth={2} />
       </button>
+     </div>
+
+      {hayDetalle ? (
+        <textarea
+          value={item.detail ?? ''}
+          onChange={(e) => onModificar({ detail: e.target.value })}
+          onBlur={() => setMostrarDetalle(false)}
+          autoFocus={mostrarDetalle && !item.detail}
+          rows={2}
+          placeholder="Qué incluye — una cosa por línea"
+          className="mt-1 w-full px-2 py-1.5 rounded-lg bg-canvas/60 border border-line
+            text-xs text-ink-soft placeholder:text-ink-faint resize-y
+            focus:outline-none focus:border-brand-400 focus:bg-surface"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setMostrarDetalle(true)}
+          className="mt-0.5 text-[11px] text-ink-faint hover:text-brand-600
+            opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition"
+        >
+          + Detalle
+        </button>
+      )}
     </div>
   )
 }

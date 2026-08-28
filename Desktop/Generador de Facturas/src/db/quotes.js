@@ -63,6 +63,13 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
     `SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY position ASC, id ASC`,
     [quoteId],
   )
+  // Los impuestos y retenciones SI se heredan, y sin preguntar: forman
+  // parte del precio que el cliente acepto. Una cotizacion con ITBIS que
+  // se convirtiera en una factura sin el estaria cobrando otra cifra.
+  const adjustments = await query(
+    `SELECT * FROM invoice_adjustments WHERE invoice_id = $1 ORDER BY position ASC, id ASC`,
+    [quoteId],
+  )
 
   // La fecha de validez de la cotizacion NO sirve como vencimiento de la
   // factura: son plazos distintos y la de la cotizacion suele estar ya casi
@@ -87,6 +94,7 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
       tax_id: cot.client_tax_id,
     },
     items,
+    adjustments,
     issue_date: emision,
     due_date: vencimiento,
     status: 'pending',
@@ -104,6 +112,16 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
     // sobrevivir a la conversion.
     payment_details: cot.payment_details,
     currency_symbol: cot.currency_symbol,
+    // La cabecera describe el TRABAJO (donde es, cuando, en que
+    // condiciones), y el trabajo es el mismo que se cotizo. Se copia.
+    service_place: cot.service_place,
+    service_date_text: cot.service_date_text,
+    credit_terms: cot.credit_terms,
+    prepared_by: cot.prepared_by,
+    // La factura deja escrito de que cotizacion salio. Ademas de que es el
+    // dato que el cliente busca para cuadrarlas, es lo que rellena la
+    // casilla "Cotización" del encabezado.
+    quote_ref: cot.number,
   })
 
   // Un UPDATE por clave primaria es atomico por si mismo; no necesita

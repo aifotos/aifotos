@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { invoiceTotals } from '../lib/money.js'
+import { documentTotals } from '../lib/money.js'
 import { today, addDays } from '../lib/dates.js'
 import { DIAS_DE_VALIDEZ } from '../db/quotes.js'
 import * as invoices from '../db/invoices.js'
@@ -13,6 +13,9 @@ export function lineaVacia() {
     key: crypto.randomUUID(),
     service_id: null,
     description: '',
+    // Desglose opcional bajo el titulo del concepto ("Mano de obra" y
+    // debajo lo que incluye). Sale en letra pequena en el documento.
+    detail: '',
     quantity_milli: 1000,
     unit: 'unidad',
     unit_price_cents: 0,
@@ -30,6 +33,11 @@ function borradorNuevo(ajustes, kind) {
     kind,
     client: { name: '', email: '', phone: '', address: '', tax_id: '' },
     items: [lineaVacia()],
+    // Ningun impuesto por defecto. Aunque tengas el ITBIS en el catalogo,
+    // se aplica documento a documento: hay clientes que lo llevan y
+    // clientes que no, y equivocarse por omision es mas facil de ver que
+    // equivocarse porque venia puesto de serie.
+    adjustments: [],
     issue_date: emision,
     due_date: addDays(emision, plazo),
     status: 'draft',
@@ -38,6 +46,11 @@ function borradorNuevo(ajustes, kind) {
     notes: ajustes.default_notes ?? '',
     payment_details: ajustes.payment_details ?? '',
     currency_symbol: ajustes.currency_symbol ?? 'RD$',
+    service_place: '',
+    service_date_text: '',
+    credit_terms: '',
+    quote_ref: '',
+    prepared_by: ajustes.default_user ?? '',
   }
 }
 
@@ -56,6 +69,7 @@ function desdeLaBase(factura) {
       tax_id: factura.client_tax_id,
     },
     items: factura.items.map((it) => ({ ...it, key: crypto.randomUUID() })),
+    adjustments: (factura.adjustments ?? []).map((a) => ({ ...a, key: crypto.randomUUID() })),
     issue_date: factura.issue_date,
     due_date: factura.due_date,
     status: factura.status,
@@ -64,6 +78,11 @@ function desdeLaBase(factura) {
     notes: factura.notes,
     payment_details: factura.payment_details,
     currency_symbol: factura.currency_symbol,
+    service_place: factura.service_place ?? '',
+    service_date_text: factura.service_date_text ?? '',
+    credit_terms: factura.credit_terms ?? '',
+    quote_ref: factura.quote_ref ?? '',
+    prepared_by: factura.prepared_by ?? '',
   }
 }
 
@@ -198,9 +217,18 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
     }
   }, [guardarAhora])
 
+  // Se recalcula en cada render, no se guarda en estado: el total es una
+  // consecuencia de las lineas y de los impuestos, y un total en estado es
+  // un total que puede quedarse viejo. Es la misma funcion que usa `save`,
+  // asi que lo que ves y lo que se guarda salen del mismo calculo.
   const totales = borrador
-    ? invoiceTotals(borrador.items, borrador.discount_type, borrador.discount_value)
-    : { subtotal_cents: 0, discount_cents: 0, total_cents: 0 }
+    ? documentTotals(
+        borrador.items,
+        borrador.discount_type,
+        borrador.discount_value,
+        borrador.adjustments,
+      )
+    : documentTotals([], 'none', 0, [])
 
   return { borrador, actualizar, guardarAhora, totales, estadoGuardado, cargando }
 }

@@ -12,6 +12,8 @@ const V1_ESQUEMA_INICIAL: &str = include_str!("../migrations/001_esquema_inicial
 const V2_NUMERACION_BORRADORES: &str =
     include_str!("../migrations/002_numeracion_de_borradores.sql");
 const V3_COTIZACIONES: &str = include_str!("../migrations/003_cotizaciones.sql");
+const V4_CUENTAS_E_IMPUESTOS: &str =
+    include_str!("../migrations/004_cuentas_e_impuestos.sql");
 
 /// Migraciones de la base de datos local (SQLite).
 ///
@@ -42,6 +44,12 @@ fn migrations() -> Vec<Migration> {
             version: 3,
             description: "cotizaciones: columna kind, estados propios y vistas separadas",
             sql: V3_COTIZACIONES,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "cuentas separadas, impuestos y retenciones, formato del documento",
+            sql: V4_CUENTAS_E_IMPUESTOS,
             kind: MigrationKind::Up,
         },
     ]

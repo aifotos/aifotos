@@ -2,23 +2,33 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import AppShell from './components/layout/AppShell.jsx'
 import DragStrip from './components/layout/DragStrip.jsx'
+import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Clients from './pages/Clients.jsx'
 import Services from './pages/Services.jsx'
 import Settings from './pages/Settings.jsx'
 import InvoiceEditor from './pages/InvoiceEditor.jsx'
 import * as settings from './db/settings.js'
+import * as auth from './db/auth.js'
 import { doc as vocabulario } from './lib/documentos.js'
 import { registrarFallo } from './lib/logging.js'
 
 /**
  * Raiz de la app.
  *
- * La navegacion es un `useState`, no una libreria de rutas: son cuatro
+ * La navegacion es un `useState`, no una libreria de rutas: son cinco
  * pantallas en una app de escritorio sin URLs, sin historial de navegador
  * y sin enlaces compartibles. Un router aqui seria peso muerto.
+ *
+ * Lo primero que hace al arrancar es CERRAR cualquier sesion que hubiera
+ * quedado abierta. Sin eso la app abriria en la ultima cuenta usada y el
+ * acceso no serviria para nada: el sentido de tener dos negocios separados
+ * es no emitir por error desde el equivocado, y para eso hay que elegir a
+ * proposito cada vez.
  */
 export default function App() {
+  const [arrancando, setArrancando] = useState(true)
+  const [cuenta, setCuenta] = useState(null)
   const [seccion, setSeccion] = useState('invoices')
   // `null` = no hay editor abierto. Si no, { id, kind }: un id numerico abre
   // ese documento y 'nuevo' abre un borrador en blanco del tipo indicado.
@@ -27,13 +37,38 @@ export default function App() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    settings.get()
-      .then(setAjustes)
+    auth.limpiarSesion()
       .catch((e) => {
         registrarFallo('arranque: no se pudo abrir la base de datos', e)
         setError(String(e?.message ?? e))
       })
+      .finally(() => setArrancando(false))
   }, [])
+
+  /** Tras entrar, los ajustes que se cargan son los de ESA cuenta. */
+  function entrar(nueva) {
+    settings.get()
+      .then((a) => {
+        setAjustes(a)
+        setCuenta(nueva)
+      })
+      .catch((e) => {
+        registrarFallo('acceso: no se pudieron cargar los ajustes', e)
+        setError(String(e?.message ?? e))
+      })
+  }
+
+  async function salir() {
+    await auth.cerrarSesion().catch(() => {})
+    // Se limpia TODO lo que hubiera en pantalla, no solo la cuenta: un
+    // documento abierto de aifotos no puede sobrevivir a un cambio a
+    // remont, porque su siguiente autoguardado escribiria en la cuenta
+    // equivocada.
+    setEditando(null)
+    setAjustes(null)
+    setSeccion('invoices')
+    setCuenta(null)
+  }
 
   if (error) {
     return (
@@ -50,13 +85,17 @@ export default function App() {
     )
   }
 
-  if (!ajustes) {
+  if (arrancando) {
     return (
       <div className="h-full flex items-center justify-center text-ink-soft">
         <DragStrip />
         <Loader2 className="size-5 animate-spin" />
       </div>
     )
+  }
+
+  if (!cuenta || !ajustes) {
+    return <Login onEntrar={entrar} />
   }
 
   const moneda = ajustes.currency_symbol
@@ -105,6 +144,9 @@ export default function App() {
       onNavegar={setSeccion}
       onNuevaFactura={nuevoDocumento}
       etiquetaNuevo={v.nuevo}
+      cuenta={cuenta}
+      negocio={ajustes.business_name}
+      onSalir={salir}
     >
       <DragStrip />
       {(seccion === 'invoices' || seccion === 'quotes') && (
@@ -120,7 +162,9 @@ export default function App() {
       )}
       {seccion === 'clients' && <Clients />}
       {seccion === 'services' && <Services moneda={moneda} />}
-      {seccion === 'settings' && <Settings onGuardado={setAjustes} />}
+      {seccion === 'settings' && (
+        <Settings cuenta={cuenta} onGuardado={setAjustes} />
+      )}
     </AppShell>
   )
 }

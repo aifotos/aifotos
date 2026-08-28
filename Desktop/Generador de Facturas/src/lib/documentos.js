@@ -14,7 +14,8 @@ export const DOCUMENTOS = {
     articulo: 'la',
     nuevo: 'Nueva factura',
     // Encabezado del PDF
-    tituloDocumento: 'FACTURA',
+    tituloDocumento: 'Factura',
+    etiquetaNumero: 'Factura No:',
     // La segunda fecha significa cosas distintas en cada documento
     etiquetaFecha: 'Vencimiento',
     etiquetaFechaDoc: 'Vence',
@@ -34,7 +35,8 @@ export const DOCUMENTOS = {
     singular: 'cotización',
     articulo: 'la',
     nuevo: 'Nueva cotización',
-    tituloDocumento: 'COTIZACIÓN',
+    tituloDocumento: 'Cotización',
+    etiquetaNumero: 'Cotización No:',
     etiquetaFecha: 'Válida hasta',
     etiquetaFechaDoc: 'Válida hasta',
     accionEmitir: 'Enviar cotización',

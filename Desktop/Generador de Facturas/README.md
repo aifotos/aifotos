@@ -163,6 +163,115 @@ Que hereda la factura de la cotizacion y que no:
 | Vencimiento | **no** — usa tu plazo de pago desde hoy. La validez de la cotizacion suele estar agotada cuando el cliente acepta |
 | Notas | **no** — son de la oferta ("precios validos por 30 dias"). En una factura sobran, y el cliente puede leerlas como una condicion de pago. Arranca con el pie por defecto de Ajustes |
 
+### Dos negocios, una app: el aislamiento es de esquema
+
+La app lleva dos contabilidades separadas (`aifotos` y `remont`). No
+comparten nada: ni clientes, ni catalogo, ni numeracion, ni logo, ni
+impuestos, ni historial.
+
+Lo importante es **como** se separan. No con `WHERE account_id = …`
+repartidos por el codigo, sino con una fila `sesion` que guarda la cuenta
+activa y unas vistas que filtran por ella:
+
+```sql
+CREATE VIEW facturas AS
+    SELECT * FROM invoices
+     WHERE kind = 'invoice'
+       AND account_id = (SELECT account_id FROM sesion WHERE id = 1);
+```
+
+Toda lectura pasa por una de esas vistas — `facturas`, `cotizaciones`,
+`mis_documentos`, `mis_clientes`, `mis_servicios`, `mis_impuestos`,
+`mis_ajustes` — y nunca por la tabla cruda. Es la misma idea que separo
+facturas de cotizaciones en la migracion 003, extendida a las cuentas:
+**olvidarse del filtro deja de ser posible**, porque la consulta ni
+siquiera alcanza las filas del otro negocio. Sin sesion iniciada las
+vistas devuelven cero filas, asi que la app no puede ensenar datos de
+nadie ni por error.
+
+Las ESCRITURAS si tienen que decir de quien es la fila que crean:
+`cuentaActual()` en `src/db/index.js`. Si anades una tabla con datos de
+usuario, necesita `account_id` y su vista; si no, sera la unica que se vea
+desde las dos cuentas.
+
+La sesion **se cierra al arrancar** (`App.jsx` llama a
+`auth.limpiarSesion()`). Es deliberado: el sentido de tener dos negocios
+separados es no emitir por error desde el equivocado, y para eso hay que
+elegir a proposito cada vez que abres el programa.
+
+### Contrasenas
+
+PBKDF2-SHA256, 210.000 iteraciones, sal aleatoria por cuenta
+(`src/db/auth.js`). Comprobado dentro de WKWebView: `crypto.subtle` existe
+y una derivacion cuesta ~30 ms.
+
+**Ninguna cuenta trae contrasena de fabrica, y no es un olvido.** Este
+proyecto vive dentro de `github.com/aifotos/aifotos`, que es un repositorio
+**publico**: una contrasena escrita en el codigo estaria publicada el mismo
+dia. La primera vez que entras en una cuenta, la pantalla de acceso te pide
+crearla, y de ahi solo sale su hash a la base local.
+
+Por la misma razon las migraciones no traen los datos reales de ningun
+negocio (direccion, cuenta bancaria, cedula). Eso se escribe en Ajustes,
+en el Mac.
+
+### Impuestos y retenciones
+
+Un impuesto SUMA y una retencion RESTA. No son una casilla fija de "cobrar
+ITBIS si/no": son reglas del catalogo de cada cuenta (`tax_rules`) que se
+aplican **documento a documento**. Un cliente residencial no lleva ninguna
+y una empresa que retiene lleva tres, con las mismas reglas.
+
+Cada regla dice sobre que se calcula:
+
+| `base` | Se calcula sobre | Para que |
+| --- | --- | --- |
+| `subtotal` | el bruto menos el descuento | ITBIS 18 %, ISR 2 % |
+| `taxes` | los impuestos ya sumados | "me retienen el 100 % del ITBIS" |
+| `fixed` | nada: `rate_bp` son centavos | una retencion de importe fijo |
+
+El orden del calculo no es un detalle (`documentTotals` en
+`src/lib/money.js`): primero los impuestos, porque las retenciones pueden
+apoyarse en ellos y no al reves. Sale exactamente el pie de la factura:
+
+```
+  Importe bruto      suma de las lineas
+− Descuento
+= Base imponible
++ Impuestos          ITBIS 18 %…
+= Subtotal
+− Retenciones        ITBIS retenido, ISR 2 %…
+= Importe neto       lo que el cliente paga
+```
+
+Lo que se guarda en `invoice_adjustments` es una **copia congelada** de la
+regla con su importe ya calculado, no un puntero. Si manana el ISR pasa al
+3 %, las facturas del ano pasado siguen imprimiendo el 2 % con el que se
+emitieron, que es lo que el cliente pago. Misma decision que congelar los
+datos del cliente en la factura.
+
+`total_cents` sigue significando **lo que se cobra** — ahora bruto −
+descuento + impuestos − retenciones. Por eso el panel, las fichas de
+cliente y los vencidos siguieron sumando la cifra correcta sin tocar una
+sola consulta.
+
+### El documento
+
+Facturas y cotizaciones usan la MISMA plantilla
+(`components/pdf/InvoiceDocument.jsx`). Solo cambian tres palabras (el
+titulo, la etiqueta del numero y la de la segunda fecha), y salen de
+`lib/documentos.js`. No es estetica: el cliente que recibe primero la
+cotizacion y despues la factura tiene que reconocer el mismo papel.
+
+El color de las bandas (`accent_color`) es de cada cuenta. El texto que va
+encima se calcula por luminancia: negro sobre el amarillo, blanco sobre un
+azul oscuro. Fijar uno de los dos dejaria la cabecera ilegible para la
+mitad de los colores posibles.
+
+Los bloques del encabezado (lugar del servicio, condiciones de credito…)
+solo se imprimen si tienen contenido: en una factura de fotografia estan
+vacios y una rejilla de etiquetas en blanco ensucia el papel.
+
 ### Regla de oro de las migraciones
 
 `src-tauri/migrations/001_esquema_inicial.sql` **no se toca nunca mas**.
@@ -243,3 +352,7 @@ porque una ventana en blanco no dice nada por si sola.
 - [x] **Fase 3** — Dashboard, layout y pantallas de consulta
 - [x] **Fase 4** — Editor de facturas, autocompletado y autoguardado
 - [x] **Fase 5** — Exportacion a PDF por impresion nativa
+- [x] Cotizaciones convertibles en factura
+- [x] Cuentas separadas con acceso por contrasena
+- [x] Impuestos y retenciones creables por cuenta
+- [x] Logo del negocio y formato de documento comun
