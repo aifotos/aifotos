@@ -332,6 +332,10 @@ const InvoiceDocument = forwardRef(function InvoiceDocument(
             >
               <Importe moneda={moneda} cents={totales.total_cents} negrita grande />
             </Liquidacion>
+            {borrador.kind !== 'quote' && borrador.paid_cents > 0 && <>
+              <Liquidacion acento={acento} tinta={sobreAcento} etiqueta="Pagado"><Importe moneda={moneda} cents={borrador.paid_cents} /></Liquidacion>
+              <Liquidacion acento={acento} tinta={sobreAcento} etiqueta="Saldo pendiente" negrita><Importe moneda={moneda} cents={Math.max(0, totales.total_cents - borrador.paid_cents)} negrita /></Liquidacion>
+            </>}
           </tbody>
         </table>
       </section>

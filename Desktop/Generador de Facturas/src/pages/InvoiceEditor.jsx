@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ArrowLeft, Check, Cloud, CloudOff, FileText, Loader2, Printer, Send } from 'lucide-react'
+import PaymentDialog from '../components/invoice/PaymentDialog.jsx'
+import ConvertDialog from '../components/invoice/ConvertDialog.jsx'
 import Button from '../components/ui/Button.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Field, { inputClass, textareaClass } from '../components/ui/Field.jsx'
@@ -26,6 +28,9 @@ import * as quotes from '../db/quotes.js'
 export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', onSalir, onAbrirFactura }) {
   const { borrador, actualizar, guardarAhora, totales, estadoGuardado, cargando } =
     useInvoiceDraft({ ajustes, facturaId, kind })
+  const [payment, setPayment] = useState(null)
+  const [conversion, setConversion] = useState(null)
+  const [error, setError] = useState('')
   const [emitiendo, setEmitiendo] = useState(false)
   const [preguntarEmitir, setPreguntarEmitir] = useState(false)
   const [convirtiendo, setConvirtiendo] = useState(false)
@@ -50,7 +55,10 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
       const guardada = await guardarAhora({ ...borrador, status: v.estadoAlEmitir })
       if (guardada) {
         actualizar({ status: v.estadoAlEmitir, number: guardada.number })
+        return true
       }
+      setError('No se pudo guardar. Revisa los importes antes de emitir.')
+      return false
     } finally {
       setEmitiendo(false)
     }
@@ -67,19 +75,20 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
       setPreguntarEmitir(true)
       return
     }
-    await guardarAhora(borrador)
+    const saved = await guardarAhora(borrador)
+    if (!saved) { setError('No se pudo guardar. El PDF no se ha generado.'); return }
     await imprimir()
   }
 
   async function emitirYExportar() {
     setPreguntarEmitir(false)
-    await emitir()
-    await imprimir()
+    if (await emitir()) await imprimir()
   }
 
   async function exportarComoBorrador() {
     setPreguntarEmitir(false)
-    await guardarAhora(borrador)
+    const saved = await guardarAhora(borrador)
+    if (!saved) { setError('No se pudo guardar. El PDF no se ha generado.'); return }
     await imprimir()
   }
 
@@ -91,19 +100,28 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
 
   /** Cotización aceptada -> factura. La cotización se queda, enlazada. */
   async function convertir() {
-    if (!borrador.id) return
     setConvirtiendo(true)
     try {
-      await guardarAhora(borrador)
-      const factura = await quotes.convertirEnFactura(borrador.id)
-      onAbrirFactura?.(factura)
-    } finally {
-      setConvirtiendo(false)
-    }
+      const saved = await guardarAhora(borrador)
+      if (!saved) throw new Error('No se pudo guardar la cotización')
+      setConversion(saved)
+    } catch (e) { setError(String(e?.message ?? e)) }
+    finally { setConvirtiendo(false) }
+  }
+
+  async function abrirPagos() {
+    try {
+      const saved = await guardarAhora(borrador)
+      if (!saved) throw new Error('No se pudo guardar la factura')
+      setPayment(saved)
+    } catch (e) { setError(String(e?.message ?? e)) }
   }
 
   return (
     <div className="h-full flex flex-col">
+      {payment && <PaymentDialog invoice={payment} onCerrar={() => setPayment(null)} onGuardado={f => actualizar({ status: f.status, paid_cents: f.paid_cents })} />}
+      {conversion && <ConvertDialog quoteId={conversion.id} onCerrar={() => setConversion(null)} onConverted={f => { setConversion(null); onAbrirFactura?.(f) }} />}
+      {error && <p role="alert" className="text-overdue-ink px-6 pt-11">{error}</p>}
       {/* Barra superior */}
       <header
         className="shrink-0 bg-canvas/85 backdrop-blur-xl border-b border-line"
@@ -131,7 +149,9 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
               </Button>
             ) : (
               <>
-                {borrador.status !== v.estadoCerrado ? (
+                {kind === 'invoice' ? (
+                  <Button variant="primary" icon={Check} onClick={abrirPagos}>Registrar / ver pagos</Button>
+                ) : borrador.status !== v.estadoCerrado ? (
                   <Button variant={kind === 'quote' ? 'secondary' : 'primary'} icon={Check} onClick={cerrar}>
                     {v.accionCerrar}
                   </Button>

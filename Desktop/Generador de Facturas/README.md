@@ -356,3 +356,49 @@ porque una ventana en blanco no dice nada por si sola.
 - [x] Cuentas separadas con acceso por contrasena
 - [x] Impuestos y retenciones creables por cuenta
 - [x] Logo del negocio y formato de documento comun
+
+
+## Costos, abonos y resultados (migración 005)
+
+- **Costos y gastos** registra cada material/concepto con fecha, trabajo,
+  documento opcional, proveedor, cantidad y costo unitario. Cada línea es
+  prevista o realizada. Al realizar una compra prevista se actualiza esa misma
+  fila para evitar duplicarla. Los costos son internos y no aparecen en el PDF.
+- **Registrar / ver pagos** sustituye el cambio manual a pagada. Cada abono
+  guarda fecha, referencia e importe. Un porcentaje representa un abono
+  adicional sobre el importe neto total (30 % seguido de 20 % suma 50 %).
+  La factura queda pagada al completar el saldo; no se permiten sobrepagos ni
+  reducir el total por debajo del dinero ya cobrado. Los errores de captura se
+  corrigen eliminando el abono con confirmación. El PDF muestra pagado y saldo.
+- Las facturas previamente pagadas reciben un asiento inicial por su total,
+  fechado con `paid_at` o, si falta, con la fecha de emisión.
+- **Dashboard** filtra por intervalo: conversión sobre cotizaciones emitidas
+  en ese intervalo (incluye rechazadas y caducadas; excluye borradores), importe
+  neto facturado, cobros registrados de esas facturas y saldo. Las entradas por
+  fecha de pago se presentan aparte. Una cotización con algunas líneas
+  facturadas cuenta como una conversión y conserva el original completo.
+- El estado de resultados operativo usa ingresos después del descuento, sin
+  impuestos ni retenciones, menos costos directos y gastos realizados por
+  fecha. Los importes de costos son los capturados por el usuario; no se
+  desglosan automáticamente sus impuestos. No incluye inventario, depreciación
+  ni cálculo de impuesto sobre beneficios.
+- La conversión permite excluir líneas y recalcula los porcentajes. Descuentos,
+  impuestos o retenciones de importe fijo mantienen su valor. La creación y
+  el enlace se confirman juntos mediante `atomico`; una restricción única
+  impide crear dos facturas para una misma cotización.
+- **Editar servicio** está disponible en el catálogo y en las líneas del
+  editor. Desde la línea actualiza el catálogo y esa línea. Otros documentos
+  conservan su precio guardado. El catálogo aprende precios al emitir, no con
+  cada autoguardado de documentos antiguos.
+
+### Verificación
+
+`npm test` ejercita los módulos de datos reales sobre una base sql.js aislada:
+importación de pagos anteriores, abonos, sobrepagos, rollback, conversión
+selectiva, impuestos, costos, métricas y separación entre cuentas.
+`cargo test --manifest-path src-tauri/Cargo.toml --lib` verifica transacciones y
+pagos con el pool SQLite nativo. `npm run app:build` genera la aplicación macOS.
+
+Con el servidor de desarrollo, `/tests/ui.html` permite probar las pantallas con
+los datos ficticios del navegador. No se incluye en la aplicación compilada ni
+accede a la base nativa. Las copias privadas en `.backups/` se excluyen de Git.

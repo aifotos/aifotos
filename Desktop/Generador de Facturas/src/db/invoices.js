@@ -45,7 +45,7 @@ export function estadosDe(kind) {
 
 /** La vista desde la que se lee cada tipo. Nunca la tabla `invoices`. */
 function vista(kind) {
-  return kind === 'quote' ? 'cotizaciones' : 'facturas'
+  return kind === 'quote' ? 'cotizaciones' : 'facturas_saldos'
 }
 
 // ------------------------------------------------------------- CONSULTAS
@@ -54,16 +54,18 @@ function vista(kind) {
  * Listado del Dashboard, con filtro opcional por estado y busqueda.
  */
 export function list({ kind = 'invoice', status = null, search = '', limit = 200 } = {}) {
+  const partial = kind === 'invoice' && status === 'partial'
   const t = search.trim().toLowerCase()
   return query(
     `SELECT i.*,
             (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS item_count
      FROM ${vista(kind)} i
      WHERE ($1 IS NULL OR i.status = $1)
+       AND ${partial ? "i.status = 'pending' AND i.paid_cents > 0 AND i.paid_cents < i.total_cents" : '1=1'}
        AND ($2 = '' OR lower(i.number) LIKE $3 OR lower(i.client_name) LIKE $3)
      ORDER BY i.issue_date DESC, i.id DESC
      LIMIT $4`,
-    [status, t, `%${t}%`, limit],
+    [partial ? null : status, t, `%${t}%`, limit],
   )
 }
 
@@ -83,21 +85,22 @@ export async function getFull(id) {
       [id],
     ),
   ])
-  return { ...invoice, items, adjustments }
+  const pago = await queryOne('SELECT COALESCE(SUM(amount_cents),0) AS paid_cents FROM mis_pagos WHERE invoice_id=$1', [id])
+  return { ...invoice, ...pago, items, adjustments }
 }
 
 /** Tarjetas de resumen del Dashboard. */
 export function summary() {
   return queryOne(
     `SELECT
-       COALESCE(SUM(CASE WHEN status = 'paid'    THEN total_cents END), 0) AS cobrado,
-       COALESCE(SUM(CASE WHEN status = 'pending' THEN total_cents END), 0) AS por_cobrar,
+       COALESCE(SUM(CASE WHEN status IN ('paid','pending') THEN paid_cents END), 0) AS cobrado,
+       COALESCE(SUM(CASE WHEN status = 'pending' THEN total_cents-paid_cents END), 0) AS por_cobrar,
        COUNT(CASE WHEN status = 'pending' THEN 1 END)                      AS n_pendientes,
        COUNT(CASE WHEN status = 'draft'   THEN 1 END)                      AS n_borradores,
        COALESCE(SUM(CASE WHEN status = 'pending'
                           AND due_date IS NOT NULL
-                          AND due_date < date('now') THEN total_cents END), 0) AS vencido
-     FROM facturas
+                          AND due_date < date('now') THEN total_cents-paid_cents END), 0) AS vencido
+     FROM facturas_saldos
      WHERE status != 'cancelled'`,
   )
 }
@@ -168,7 +171,7 @@ export async function save(borrador) {
     adjustments = [],
     issue_date,
     due_date = null,
-    status = 'draft',
+    status: requestedStatus = 'draft',
     discount_type = 'none',
     discount_value = 0,
     notes = '',
@@ -182,6 +185,11 @@ export async function save(borrador) {
   } = borrador
 
   const cuenta = await cuentaActual()
+  const anterior = id ? await queryOne('SELECT * FROM mis_documentos WHERE id=$1', [id]) : null
+  if (id && !anterior) throw new Error('El documento no está disponible en esta cuenta')
+  // Un autoguardado en cola no puede devolver a borrador un documento ya emitido.
+  const status = requestedStatus === 'draft' && anterior && anterior.status !== 'draft'
+    ? anterior.status : requestedStatus
 
   // Las lineas vacias no llegan a la base de datos.
   const lineas = items.filter(
@@ -339,6 +347,9 @@ export async function save(borrador) {
     })
   })
 
+  if (borrador.sourceQuoteId) {
+    sentencias.push({ sql: `INSERT INTO quote_conversions(quote_id,invoice_id) VALUES (?, ${porNumero})`, params: [borrador.sourceQuoteId, ...clave] })
+  }
   await atomico(sentencias)
 
   const guardada = await queryOne(
@@ -351,7 +362,9 @@ export async function save(borrador) {
   // Un documento que sale de borrador alimenta el CRM y el catalogo — sea
   // factura o cotizacion. Si le cotizas a alguien es un cliente real
   // aunque todavia no te haya dicho que si.
-  if (status !== 'draft') await aprender(idFactura)
+  if (status !== 'draft' && (!anterior || anterior.status === 'draft')) {
+    try { await aprender(idFactura) } catch (e) { console.error('No se pudo actualizar el catálogo', e) }
+  }
 
   return getFull(idFactura)
 }

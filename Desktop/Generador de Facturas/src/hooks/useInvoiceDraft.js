@@ -73,6 +73,7 @@ function desdeLaBase(factura) {
     issue_date: factura.issue_date,
     due_date: factura.due_date,
     status: factura.status,
+    paid_cents: factura.paid_cents ?? 0,
     discount_type: factura.discount_type,
     discount_value: factura.discount_value,
     notes: factura.notes,
@@ -108,7 +109,8 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
   // lee cuando dispara, y no debe reiniciarse cada vez que cambian.
   const pendiente = useRef(null)
   const temporizador = useRef(null)
-  const guardando = useRef(false)
+  const revision = useRef(0)
+  const cola = useRef(Promise.resolve())
 
   // El id y el numero que asigno la base, fuera del estado de React.
   //
@@ -132,6 +134,7 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
         if (!vivo) return
         identidad.current = { id: b.id, number: b.number }
         setBorrador(b)
+        setEstadoGuardado(b.id ? 'guardado' : 'limpio')
       })
       .catch((e) => {
         registrarFallo('editor: no se pudo cargar la factura', e)
@@ -152,46 +155,42 @@ export default function useInvoiceDraft({ ajustes, facturaId = null, kind = 'inv
     const base = siguiente ?? pendiente.current
     if (!base) return null
 
-    // Ya hay un guardado en vuelo. No se descarta este: se deja pendiente
-    // para que lo recoja el siguiente ciclo. Descartarlo perdia el ultimo
-    // cambio escrito.
-    if (guardando.current) {
-      pendiente.current = base
-      return null
+    const version = revision.current
+    const trabajo = async () => {
+      // La identidad manda siempre sobre lo que traiga el formulario: es la
+      // unica copia que no se pierde si un guardado anterior fallo.
+      const aGuardar = { ...base, id: identidad.current.id ?? base.id ?? null }
+      if (identidad.current.number) aGuardar.number = identidad.current.number
+
+      // Un borrador completamente vacio no merece una fila en la base.
+      if (!aGuardar.id && estaVacio(aGuardar)) return null
+
+      setEstadoGuardado('guardando')
+      try {
+        const guardada = await invoices.save(aGuardar)
+        identidad.current = { id: guardada.id, number: guardada.number }
+        setBorrador((b) => (b ? { ...b, id: guardada.id, number: guardada.number, paid_cents: guardada.paid_cents, status: guardada.status } : b))
+        if (revision.current === version) pendiente.current = null
+        setEstadoGuardado(revision.current === version ? 'guardado' : 'limpio')
+        return guardada
+      } catch (e) {
+        registrarFallo('editor: no se pudo guardar la factura', e)
+        // El borrador se queda pendiente para reintentar: si se descartara,
+        // el siguiente guardado entraria sin id y duplicaria el documento.
+        if (!pendiente.current) pendiente.current = aGuardar
+        setEstadoGuardado('error')
+        return null
+      }
     }
-
-    // La identidad manda siempre sobre lo que traiga el formulario: es la
-    // unica copia que no se pierde si un guardado anterior fallo.
-    const aGuardar = { ...base, id: identidad.current.id ?? base.id ?? null }
-    if (identidad.current.number) aGuardar.number = identidad.current.number
-
-    // Un borrador completamente vacio no merece una fila en la base.
-    if (!aGuardar.id && estaVacio(aGuardar)) return null
-
-    guardando.current = true
-    setEstadoGuardado('guardando')
-    try {
-      const guardada = await invoices.save(aGuardar)
-      identidad.current = { id: guardada.id, number: guardada.number }
-      setBorrador((b) => (b ? { ...b, id: guardada.id, number: guardada.number } : b))
-      pendiente.current = null
-      setEstadoGuardado('guardado')
-      return guardada
-    } catch (e) {
-      registrarFallo('editor: no se pudo guardar la factura', e)
-      // El borrador se queda pendiente para reintentar: si se descartara,
-      // el siguiente guardado entraria sin id y duplicaria el documento.
-      pendiente.current = aGuardar
-      setEstadoGuardado('error')
-      return null
-    } finally {
-      guardando.current = false
-    }
+    const resultado = cola.current.then(trabajo)
+    cola.current = resultado.catch(() => {})
+    return resultado
   }, [])
 
   /** Modifica el borrador y programa el autoguardado. */
   const actualizar = useCallback(
     (cambio) => {
+      revision.current += 1
       setBorrador((actual) => {
         if (!actual) return actual
         const siguiente = typeof cambio === 'function' ? cambio(actual) : { ...actual, ...cambio }

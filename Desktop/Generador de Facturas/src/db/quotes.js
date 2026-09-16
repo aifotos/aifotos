@@ -1,4 +1,4 @@
-import { query, queryOne, execute } from './index.js'
+import { query, queryOne } from './index.js'
 import * as invoices from './invoices.js'
 import * as settings from './settings.js'
 import { today, addDays } from '../lib/dates.js'
@@ -46,7 +46,7 @@ export function validaHastaPorDefecto(desde = today()) {
  *
  * @returns {Promise<object>} La factura recien creada, con sus lineas.
  */
-export async function convertirEnFactura(quoteId, { issue_date, due_date } = {}) {
+export async function convertirEnFactura(quoteId, { issue_date, due_date, itemIds } = {}) {
   const cot = await queryOne(
     `SELECT * FROM cotizaciones WHERE id = $1`,
     [quoteId],
@@ -59,10 +59,12 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
     throw new Error('Esta cotización ya se convirtió en factura')
   }
 
-  const items = await query(
+  const allItems = await query(
     `SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY position ASC, id ASC`,
     [quoteId],
   )
+  const items = itemIds ? allItems.filter(it => itemIds.includes(it.id)) : allItems
+  if (!items.length) throw new Error('Selecciona al menos una línea')
   // Los impuestos y retenciones SI se heredan, y sin preguntar: forman
   // parte del precio que el cliente acepto. Una cotizacion con ITBIS que
   // se convirtiera en una factura sin el estaria cobrando otra cifra.
@@ -83,6 +85,7 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
   // los totales desde las lineas y alimenta el CRM. La cotizacion conserva
   // su COT-.
   const factura = await invoices.save({
+    sourceQuoteId: quoteId,
     id: null,
     number: null,
     kind: 'invoice',
@@ -123,21 +126,6 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date } = {})
     // casilla "Cotización" del encabezado.
     quote_ref: cot.number,
   })
-
-  // Un UPDATE por clave primaria es atomico por si mismo; no necesita
-  // transaccion. Si aun asi fallara, la factura quedaria creada sin el
-  // enlace, asi que se deshace: es preferible perder la factura —que se
-  // vuelve a generar con un clic— a dejar la cotizacion convertible otra
-  // vez y acabar facturando el mismo trabajo dos veces.
-  try {
-    await execute(
-      `UPDATE invoices SET status = 'accepted', converted_to_id = $1 WHERE id = $2`,
-      [factura.id, quoteId],
-    )
-  } catch (error) {
-    await execute(`DELETE FROM invoices WHERE id = $1`, [factura.id])
-    throw error
-  }
 
   return factura
 }

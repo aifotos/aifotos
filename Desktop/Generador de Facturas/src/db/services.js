@@ -94,7 +94,7 @@ export async function update(id, datos) {
     `UPDATE services SET
        name = $1, name_key = $2, description = $3,
        unit_price_cents = $4, unit = $5
-     WHERE id = $6`,
+     WHERE id = $6 AND account_id = $7`,
     [
       datos.name,
       nameKey(datos.name),
@@ -102,6 +102,7 @@ export async function update(id, datos) {
       datos.unit_price_cents ?? 0,
       datos.unit ?? 'unidad',
       id,
+      await cuentaActual(),
     ],
   )
   return getById(id)

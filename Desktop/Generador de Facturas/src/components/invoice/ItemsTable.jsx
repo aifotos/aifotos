@@ -67,6 +67,10 @@ export default function ItemsTable({ items, moneda, onChange }) {
               recargar={recargar}
               onModificar={(c) => modificar(it.key, c)}
               onCrear={(texto) => setDialogo({ key: it.key, servicio: null, nombreInicial: texto })}
+              onEditar={async () => {
+                const servicio = await services.getById(it.service_id)
+                if (servicio) setDialogo({ key: it.key, servicio })
+              }}
               onQuitar={() => quitar(it.key)}
               puedeQuitar={items.length > 1 || !!it.description?.trim()}
             />
@@ -98,7 +102,7 @@ export default function ItemsTable({ items, moneda, onChange }) {
   )
 }
 
-function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onQuitar, puedeQuitar }) {
+function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onEditar, onQuitar, puedeQuitar }) {
   // Los campos numericos se editan como texto mientras tienen el foco:
   // si se reformatearan en cada tecla, escribir "1500.50" seria imposible
   // (al teclear el punto, el valor volveria a "1500").
@@ -194,6 +198,7 @@ function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onQuita
       </button>
      </div>
 
+      {item.service_id && <button type="button" onClick={onEditar} className="text-xs text-brand-600 px-2 py-1">Editar servicio del catálogo</button>}
       {hayDetalle ? (
         <textarea
           value={item.detail ?? ''}

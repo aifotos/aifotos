@@ -3,6 +3,8 @@ import { AlertTriangle, Loader2 } from 'lucide-react'
 import AppShell from './components/layout/AppShell.jsx'
 import DragStrip from './components/layout/DragStrip.jsx'
 import Login from './pages/Login.jsx'
+import Costs from './pages/Costs.jsx'
+import Analytics from './pages/Analytics.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Clients from './pages/Clients.jsx'
 import Services from './pages/Services.jsx'
@@ -160,6 +162,8 @@ export default function App() {
           onAbrirFactura={abrirDocumento}
         />
       )}
+      {seccion === 'analytics' && <Analytics moneda={moneda} />}
+      {seccion === 'costs' && <Costs moneda={moneda} />}
       {seccion === 'clients' && <Clients />}
       {seccion === 'services' && <Services moneda={moneda} />}
       {seccion === 'settings' && (

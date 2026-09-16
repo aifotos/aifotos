@@ -44,3 +44,6 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Copias de seguridad privadas
+.backups/

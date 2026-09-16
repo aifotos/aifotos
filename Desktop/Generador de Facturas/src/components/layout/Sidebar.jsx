@@ -1,7 +1,9 @@
-import { FileText, FileSignature, Users, Package, Settings, Plus, LogOut } from 'lucide-react'
+import { FileText, FileSignature, Users, Package, Settings, Plus, LogOut, BarChart3, Wallet } from 'lucide-react'
 import Button from '../ui/Button.jsx'
 
 const SECCIONES = [
+  { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
+  { id: 'costs', label: 'Costos y gastos', icon: Wallet },
   { id: 'invoices', label: 'Facturas', icon: FileText },
   { id: 'quotes', label: 'Cotizaciones', icon: FileSignature },
   { id: 'clients', label: 'Clientes', icon: Users },

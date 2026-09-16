@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import ServiceDialog from '../components/invoice/ServiceDialog.jsx'
+import Button from '../components/ui/Button.jsx'
 import { Package } from 'lucide-react'
 import PageHeader from '../components/layout/PageHeader.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
@@ -10,20 +12,25 @@ import * as services from '../db/services.js'
  * de cada linea de factura, y recuerdan el ultimo precio que cobraste.
  */
 export default function Services({ moneda = 'RD$' }) {
+  const [editing, setEditing] = useState(null)
+  const [error, setError] = useState('')
   const [lista, setLista] = useState([])
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
-    services.listAll().then(setLista).finally(() => setCargando(false))
+    services.listAll().then(setLista).catch(e => setError(String(e))).finally(() => setCargando(false))
   }, [])
 
   return (
     <>
       <PageHeader
         title="Servicios"
+        actions={<Button variant="primary" onClick={() => setEditing({})}>Nuevo servicio</Button>}
         subtitle={cargando ? null : `${lista.length} en el catálogo`}
       />
 
+      {error && <p role="alert">{error}</p>}
+      <ServiceDialog abierto={!!editing} servicio={editing?.id ? editing : null} moneda={moneda} onCerrar={() => setEditing(null)} onGuardado={() => services.listAll().then(setLista).catch(e => setError(String(e)))} />
       <div className="px-8 py-6">
         <div className="bg-surface border border-line rounded-card overflow-hidden">
           {!cargando && lista.length === 0 ? (
@@ -49,6 +56,7 @@ export default function Services({ moneda = 'RD$' }) {
                     {formatMoney(s.unit_price_cents, moneda)}
                     <span className="font-normal text-ink-faint"> / {s.unit}</span>
                   </p>
+                  <Button size="sm" onClick={() => setEditing(s)}>Editar</Button>
                 </div>
               ))}
             </div>

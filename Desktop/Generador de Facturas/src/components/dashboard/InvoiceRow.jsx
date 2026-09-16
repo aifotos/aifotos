@@ -42,13 +42,15 @@ export default function InvoiceRow({ invoice, onAbrir, onMenu }) {
         </p>
       </div>
 
-      <Badge
+      {invoice.kind === 'invoice' && invoice.paid_cents > 0 && invoice.paid_cents < invoice.total_cents ? (
+        <span className="text-xs rounded-lg bg-pending-bg text-pending-ink p-2">Pago parcial · {(invoice.paid_cents / invoice.total_cents * 100).toFixed(1)} %</span>
+      ) : <Badge
         status={invoice.status}
         kind={invoice.kind}
         overdue={vencida}
         expired={caducada}
         converted={convertida}
-      />
+      />}
 
       <p className="text-sm font-semibold text-ink tabular-nums text-right min-w-28">
         {formatMoney(invoice.total_cents, invoice.currency_symbol)}

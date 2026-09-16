@@ -12,8 +12,7 @@ const V1_ESQUEMA_INICIAL: &str = include_str!("../migrations/001_esquema_inicial
 const V2_NUMERACION_BORRADORES: &str =
     include_str!("../migrations/002_numeracion_de_borradores.sql");
 const V3_COTIZACIONES: &str = include_str!("../migrations/003_cotizaciones.sql");
-const V4_CUENTAS_E_IMPUESTOS: &str =
-    include_str!("../migrations/004_cuentas_e_impuestos.sql");
+const V4_CUENTAS_E_IMPUESTOS: &str = include_str!("../migrations/004_cuentas_e_impuestos.sql");
 
 /// Migraciones de la base de datos local (SQLite).
 ///
@@ -50,6 +49,12 @@ fn migrations() -> Vec<Migration> {
             version: 4,
             description: "cuentas separadas, impuestos y retenciones, formato del documento",
             sql: V4_CUENTAS_E_IMPUESTOS,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "costos, abonos y conversion atomica",
+            sql: include_str!("../migrations/005_costos_y_pagos.sql"),
             kind: MigrationKind::Up,
         },
     ]
@@ -94,6 +99,13 @@ async fn ejecutar_atomico(
         None => return Err(format!("La base {BASE_DE_DATOS} no esta abierta")),
     };
 
+    ejecutar_en_pool(pool, sentencias).await
+}
+
+async fn ejecutar_en_pool(
+    pool: &sqlx::SqlitePool,
+    sentencias: Vec<Sentencia>,
+) -> Result<(), String> {
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
     for sentencia in sentencias {
@@ -184,4 +196,56 @@ pub fn run() {
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_nativo_pagos_y_rollback() {
+        tauri::async_runtime::block_on(async {
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(5)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            for migration in migrations() {
+                sqlx::raw_sql(migration.sql).execute(&pool).await.unwrap();
+            }
+            sqlx::raw_sql("UPDATE sesion SET account_id=1; INSERT INTO invoices(account_id,number,kind,issue_date,status,total_cents) VALUES(1,'TEST','invoice','2026-09-16','pending',10000)")
+                .execute(&pool).await.unwrap();
+            let statement = |sql: &str| Sentencia {
+                sql: sql.into(),
+                params: vec![],
+            };
+            let insert = "INSERT INTO payments(id,invoice_id,amount_cents,paid_on) VALUES('test',1,3000,'2026-09-16')";
+            let failed = ejecutar_en_pool(
+                &pool,
+                vec![
+                    statement(insert),
+                    statement("INSERT INTO missing_table VALUES (1)"),
+                ],
+            )
+            .await;
+            assert!(failed.is_err());
+            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM payments")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count.0, 0);
+            ejecutar_en_pool(&pool, vec![statement(insert)])
+                .await
+                .unwrap();
+            let excess = ejecutar_en_pool(&pool,vec![statement("INSERT INTO payments(id,invoice_id,amount_cents,paid_on) VALUES('excess',1,8000,'2026-09-16')")]).await;
+            assert!(excess.is_err());
+            ejecutar_en_pool(&pool,vec![statement("INSERT INTO payments(id,invoice_id,amount_cents,paid_on) VALUES('rest',1,7000,'2026-09-16')")]).await.unwrap();
+            let status: (String,) = sqlx::query_as("SELECT status FROM invoices WHERE id=1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(status.0, "paid");
+            pool.close().await;
+        });
+    }
 }

@@ -19,6 +19,7 @@ import v1 from '../../src-tauri/migrations/001_esquema_inicial.sql?raw'
 import v2 from '../../src-tauri/migrations/002_numeracion_de_borradores.sql?raw'
 import v3 from '../../src-tauri/migrations/003_cotizaciones.sql?raw'
 import v4 from '../../src-tauri/migrations/004_cuentas_e_impuestos.sql?raw'
+import v5 from '../../src-tauri/migrations/005_costos_y_pagos.sql?raw'
 import { datosDeEjemplo } from './seed.js'
 
 const CLAVE = 'facturapro:dev-db'
@@ -28,7 +29,7 @@ const CLAVE_VERSION = 'facturapro:dev-db-version'
  * Las migraciones, en orden. El indice + 1 es su version, igual que en
  * `migrations()` de src-tauri/src/lib.rs.
  */
-const MIGRACIONES = [v1, v2, v3, v4]
+const MIGRACIONES = [v1, v2, v3, v4, v5]
 
 /** Adaptador con la misma interfaz que `@tauri-apps/plugin-sql`. */
 class BrowserDatabase {
@@ -135,8 +136,9 @@ export async function loadBrowserDatabase() {
   }
 
   const db = new SQL.Database()
-  for (const migracion of MIGRACIONES) db.run(migracion)
+  for (const migracion of MIGRACIONES.slice(0, 4)) db.run(migracion)
   db.run(datosDeEjemplo)
+  for (const migracion of MIGRACIONES.slice(4)) db.run(migracion)
   localStorage.setItem(CLAVE_VERSION, String(MIGRACIONES.length))
   guardar(db)
   console.info(

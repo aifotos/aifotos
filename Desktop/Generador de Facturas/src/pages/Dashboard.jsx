@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FileText, Search, Plus, Loader2, Pencil, Copy, Check, Undo2, Trash2 } from 'lucide-react'
+import PaymentDialog from '../components/invoice/PaymentDialog.jsx'
+import ConvertDialog from '../components/invoice/ConvertDialog.jsx'
 import PageHeader from '../components/layout/PageHeader.jsx'
 import SummaryCards from '../components/dashboard/SummaryCards.jsx'
 import InvoiceRow from '../components/dashboard/InvoiceRow.jsx'
@@ -16,6 +18,7 @@ const FILTROS = {
   invoice: [
     { id: null, label: 'Todas' },
     { id: 'pending', label: 'Pendientes' },
+    { id: 'partial', label: 'Pago parcial' },
     { id: 'paid', label: 'Pagadas' },
     { id: 'draft', label: 'Borradores' },
   ],
@@ -38,6 +41,9 @@ const FILTROS = {
 export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFactura, onAbrirFactura }) {
   const v = vocabulario(kind)
   const datos = kind === 'quote' ? quotes : invoices
+  const [payment, setPayment] = useState(null)
+  const [conversion, setConversion] = useState(null)
+  const [error, setError] = useState('')
   const [lista, setLista] = useState([])
   const [resumen, setResumen] = useState(null)
   const [filtro, setFiltro] = useState(null)
@@ -65,6 +71,7 @@ export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFac
         setLista(filas)
         setResumen(sum)
       })
+      .catch(e => vivo && setError(String(e?.message ?? e)))
       .finally(() => vivo && setCargando(false))
     return () => {
       vivo = false
@@ -84,11 +91,9 @@ export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFac
     if (copia) onAbrirFactura(copia)
   }
 
-  async function convertir(cotizacion) {
+  function convertir(cotizacion) {
     setMenu(null)
-    const factura = await quotes.convertirEnFactura(cotizacion.id)
-    refrescar()
-    if (factura) onAbrirFactura(factura)
+    setConversion(cotizacion)
   }
 
   async function borrar() {
@@ -111,6 +116,9 @@ export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFac
 
   return (
     <>
+      {payment && <PaymentDialog invoice={payment} onCerrar={() => setPayment(null)} onGuardado={refrescar} />}
+      {conversion && <ConvertDialog quoteId={conversion.id} onCerrar={() => setConversion(null)} onConverted={f => { setConversion(null); refrescar(); onAbrirFactura(f) }} />}
+      {error && <p role="alert" className="text-overdue-ink px-8 pt-12">{error}</p>}
       <PageHeader
         title={v.seccion}
         subtitle={titulo}
@@ -247,13 +255,9 @@ export default function Dashboard({ kind = 'invoice', moneda = 'RD$', onNuevaFac
                   {quotes.estaConvertida(menu.invoice) ? 'Ya convertida' : 'Convertir en factura'}
                 </MenuItem>
               </>
-            ) : menu.invoice.status === 'paid' ? (
-              <MenuItem icon={Undo2} onClick={() => cambiarEstado(menu.invoice, 'pending')}>
-                Marcar pendiente
-              </MenuItem>
             ) : (
-              <MenuItem icon={Check} onClick={() => cambiarEstado(menu.invoice, 'paid')}>
-                {esBorrador(menu.invoice.number) ? 'Emitir y cobrar' : 'Marcar pagada'}
+              <MenuItem icon={Check} disabled={esBorrador(menu.invoice.number) || menu.invoice.status === 'cancelled'} onClick={() => { setPayment(menu.invoice); setMenu(null) }}>
+                Registrar / ver pagos
               </MenuItem>
             )}
             <MenuSeparator />
