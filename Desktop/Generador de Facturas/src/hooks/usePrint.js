@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { printName } from '../lib/printName.js'
 
 /**
@@ -17,8 +17,18 @@ import { printName } from '../lib/printName.js'
  * (`npm run dev`) si funciona, y ahi se usa.
  */
 export default function usePrint() {
+  const tituloOriginal = useRef(document.title)
+  useEffect(() => {
+    const titulo = tituloOriginal.current
+    return () => { document.title = titulo }
+  }, [])
+
   return useCallback(async (documento) => {
     const nombre = printName(documento)
+    // WKWebView usa el título HTML para el nombre y los metadatos del PDF.
+    // La hoja nativa es asíncrona: no restaurarlo al retornar invoke, pues
+    // el usuario todavía no ha abierto «Guardar como PDF».
+    document.title = nombre
     // Ceder dos fotogramas antes de imprimir. `print()` congela el hilo, y
     // sin esto el motor puede capturar la pagina antes de haber pintado el
     // ultimo cambio del formulario: la factura saldria con el penultimo
@@ -33,8 +43,6 @@ export default function usePrint() {
       return
     }
 
-    const anterior = document.title
-    document.title = nombre
-    try { window.print() } finally { document.title = anterior }
+    window.print()
   }, [])
 }

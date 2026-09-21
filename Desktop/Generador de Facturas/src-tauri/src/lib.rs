@@ -165,10 +165,12 @@ fn resumen(sql: &str) -> String {
 /// con texto real: seleccionable, buscable y nitido a cualquier zoom.
 #[tauri::command]
 fn imprimir(webview: tauri::WebviewWindow, nombre: String) -> Result<(), String> {
+    webview.set_title(&nombre).map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
     {
         // with_webview ejecuta el bloque en el hilo principal de AppKit.
-        // El nombre del trabajo es lo que macOS propone en Guardar como PDF.
+        // Se sincroniza el trabajo con los títulos HTML y de ventana; WebKit
+        // puede tomar el nombre de la vista en lugar del título del trabajo.
         webview.with_webview(move |platform| unsafe {
             use objc2::{msg_send, rc::Retained, runtime::AnyObject};
             use objc2_app_kit::{NSPrintInfo, NSPrintOperation, NSWindow};
