@@ -52,15 +52,14 @@ const InvoiceDocument = forwardRef(function InvoiceDocument(
     (it) => it.description?.trim() || it.unit_price_cents > 0,
   )
 
-  // El bloque de la izquierda solo se imprime si tiene algo que decir. En
-  // una factura de fotografia no hay "lugar del servicio" ni "condiciones
-  // de credito", y una rejilla de etiquetas vacias ensucia el papel.
+  // Las tres filas se mantienen visibles como en el modelo. Un campo sin
+  // completar muestra un guion, nunca una fecha o condición inventada.
   const cabecera = [
     ['Lugar Servicio:', borrador.service_place],
-    ['Cotización:', borrador.quote_ref],
     ['Fecha Servicio:', borrador.service_date_text],
     ['Cond. Crédito:', borrador.credit_terms],
-  ].filter(([, valor]) => String(valor ?? '').trim())
+    ...(borrador.quote_ref ? [['Cotización:', borrador.quote_ref]] : []),
+  ]
 
   const cliente = [
     borrador.client.address,
@@ -155,16 +154,16 @@ const InvoiceDocument = forwardRef(function InvoiceDocument(
                         background: acento,
                         color: sobreAcento,
                         width: '26mm',
-                        padding: '3px 5px',
+                        padding: '6px 5px',
                       }}
                     >
                       {etiqueta}
                     </td>
                     <td
                       className="align-middle"
-                      style={{ background: GRIS, padding: '3px 7px' }}
+                      style={{ background: GRIS, padding: '6px 7px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
                     >
-                      {valor}
+                      {String(valor ?? '').trim() || '—'}
                     </td>
                   </tr>
                 ))}

@@ -239,5 +239,8 @@ function estaVacio(b) {
   const sinLineas = b.items.every(
     (it) => !it.description?.trim() && !it.unit_price_cents,
   )
-  return sinCliente && sinLineas
+  const sinTrabajo = ['service_place', 'service_date_text', 'credit_terms'].every(
+    campo => !String(b[campo] ?? '').trim(),
+  )
+  return sinCliente && sinLineas && sinTrabajo
 }
