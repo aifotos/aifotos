@@ -55,7 +55,7 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
       const guardada = await guardarAhora({ ...borrador, status: v.estadoAlEmitir })
       if (guardada) {
         actualizar({ status: v.estadoAlEmitir, number: guardada.number })
-        return true
+        return guardada
       }
       setError('No se pudo guardar. Revisa los importes antes de emitir.')
       return false
@@ -77,19 +77,20 @@ export default function InvoiceEditor({ ajustes, facturaId, kind = 'invoice', on
     }
     const saved = await guardarAhora(borrador)
     if (!saved) { setError('No se pudo guardar. El PDF no se ha generado.'); return }
-    await imprimir()
+    await imprimir(saved)
   }
 
   async function emitirYExportar() {
     setPreguntarEmitir(false)
-    if (await emitir()) await imprimir()
+    const saved = await emitir()
+    if (saved) await imprimir(saved)
   }
 
   async function exportarComoBorrador() {
     setPreguntarEmitir(false)
     const saved = await guardarAhora(borrador)
     if (!saved) { setError('No se pudo guardar. El PDF no se ha generado.'); return }
-    await imprimir()
+    await imprimir(saved)
   }
 
   async function cerrar() {

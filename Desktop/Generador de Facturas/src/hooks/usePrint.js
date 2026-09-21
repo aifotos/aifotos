@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { printName } from '../lib/printName.js'
 
 /**
  * Abre el dialogo de impresion de macOS, desde donde se elige
@@ -16,7 +17,8 @@ import { useCallback } from 'react'
  * (`npm run dev`) si funciona, y ahi se usa.
  */
 export default function usePrint() {
-  return useCallback(async () => {
+  return useCallback(async (documento) => {
+    const nombre = printName(documento)
     // Ceder dos fotogramas antes de imprimir. `print()` congela el hilo, y
     // sin esto el motor puede capturar la pagina antes de haber pintado el
     // ultimo cambio del formulario: la factura saldria con el penultimo
@@ -27,10 +29,12 @@ export default function usePrint() {
 
     if ('__TAURI_INTERNALS__' in window) {
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('imprimir')
+      await invoke('imprimir', { nombre })
       return
     }
 
-    window.print()
+    const anterior = document.title
+    document.title = nombre
+    try { window.print() } finally { document.title = anterior }
   }, [])
 }

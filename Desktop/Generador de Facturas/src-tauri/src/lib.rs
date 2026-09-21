@@ -164,8 +164,37 @@ fn resumen(sql: &str) -> String {
 /// Desde ahi el usuario elige "PDF > Guardar como PDF", que produce un PDF
 /// con texto real: seleccionable, buscable y nitido a cualquier zoom.
 #[tauri::command]
-fn imprimir(webview: tauri::WebviewWindow) -> Result<(), String> {
-    webview.print().map_err(|e| e.to_string())
+fn imprimir(webview: tauri::WebviewWindow, nombre: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // with_webview ejecuta el bloque en el hilo principal de AppKit.
+        // El nombre del trabajo es lo que macOS propone en Guardar como PDF.
+        webview.with_webview(move |platform| unsafe {
+            use objc2::{msg_send, rc::Retained, runtime::AnyObject};
+            use objc2_app_kit::{NSPrintInfo, NSPrintOperation, NSWindow};
+            use objc2_foundation::NSString;
+            let view = &*(platform.inner() as *const AnyObject);
+            let info = NSPrintInfo::sharedPrintInfo();
+            info.setTopMargin(0.0);
+            info.setRightMargin(0.0);
+            info.setBottomMargin(0.0);
+            info.setLeftMargin(0.0);
+            let operation: Retained<NSPrintOperation> = msg_send![view, printOperationWithPrintInfo: &*info];
+            operation.setJobTitle(Some(&NSString::from_str(&nombre)));
+            operation.setCanSpawnSeparateThread(true);
+            let window: Option<Retained<NSWindow>> = msg_send![view, window];
+            if let Some(window) = window {
+                operation.runOperationModalForWindow_delegate_didRunSelector_contextInfo(
+                    &window, None, None, std::ptr::null_mut(),
+                );
+            }
+        }).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = nombre;
+        webview.print().map_err(|e| e.to_string())
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
