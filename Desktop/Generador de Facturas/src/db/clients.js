@@ -114,20 +114,26 @@ export async function upsertByName(datos) {
 
 /** Edicion explicita desde la pantalla de Clientes: aqui SI se pisa todo. */
 export async function update(id, datos) {
+  if (!(await getById(id))) throw new Error('El cliente no está disponible en esta cuenta')
+  const nombre = String(datos.name ?? '').trim()
+  if (!nombre) throw new Error('El nombre es obligatorio')
+  const otro = await getByName(nombre)
+  if (otro && otro.id !== id) throw new Error('Ya existe otro cliente con ese nombre')
   await execute(
     `UPDATE clients SET
        name = $1, name_key = $2, email = $3, phone = $4,
        address = $5, tax_id = $6, notes = $7
-     WHERE id = $8`,
+     WHERE id = $8 AND account_id = $9`,
     [
-      datos.name,
-      nameKey(datos.name),
+      nombre,
+      nameKey(nombre),
       datos.email ?? '',
       datos.phone ?? '',
       datos.address ?? '',
       datos.tax_id ?? '',
       datos.notes ?? '',
       id,
+      await cuentaActual(),
     ],
   )
   return getById(id)

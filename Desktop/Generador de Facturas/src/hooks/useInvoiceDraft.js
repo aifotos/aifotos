@@ -62,6 +62,7 @@ function desdeLaBase(factura) {
     kind: factura.kind ?? 'invoice',
     converted_to_id: factura.converted_to_id ?? null,
     client: {
+      id: factura.client_id,
       name: factura.client_name,
       email: factura.client_email,
       phone: factura.client_phone,

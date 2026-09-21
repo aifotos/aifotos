@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from '../ui/Modal.jsx'
 import Button from '../ui/Button.jsx'
 import Field, { inputClass } from '../ui/Field.jsx'
@@ -14,6 +14,7 @@ const VACIO = { name: '', email: '', phone: '', address: '', tax_id: '' }
  * el sistema lo aprenda mas tarde.
  */
 export default function ClientDialog({ abierto, cliente, nombreInicial = '', onCerrar, onGuardado }) {
+  const ocupado = useRef(false)
   const [datos, setDatos] = useState(VACIO)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
@@ -27,17 +28,20 @@ export default function ClientDialog({ abierto, cliente, nombreInicial = '', onC
   const set = (campo) => (e) => setDatos((d) => ({ ...d, [campo]: e.target.value }))
 
   async function guardar() {
+    if (ocupado.current) return
     const nombre = datos.name.trim()
     if (!nombre) {
       setError('El nombre es obligatorio')
       return
     }
+    ocupado.current = true
     setGuardando(true)
     try {
       // Si ya existe otro cliente con ese nombre, se edita ese en lugar de
       // crear un duplicado: `name_key` es UNIQUE y el INSERT fallaria.
       const existente = await clients.getByName(nombre)
-      const id = cliente?.id ?? existente?.id
+      if (existente && existente.id !== cliente?.id) throw new Error('Ya existe otro cliente con ese nombre. Selecciónalo desde la lista.')
+      const id = cliente?.id
       const guardado = id
         ? await clients.update(id, datos)
         : await clients.upsertByName(datos)
@@ -46,6 +50,7 @@ export default function ClientDialog({ abierto, cliente, nombreInicial = '', onC
     } catch (e) {
       setError(String(e?.message ?? e))
     } finally {
+      ocupado.current = false
       setGuardando(false)
     }
   }
@@ -53,12 +58,12 @@ export default function ClientDialog({ abierto, cliente, nombreInicial = '', onC
   return (
     <Modal
       abierto={abierto}
-      onCerrar={onCerrar}
+      onCerrar={() => !ocupado.current && onCerrar()}
       title={cliente ? 'Editar cliente' : 'Nuevo cliente'}
       ancho="max-w-md"
       acciones={
         <>
-          <Button onClick={onCerrar}>Cancelar</Button>
+          <Button disabled={guardando} onClick={onCerrar}>Cancelar</Button>
           <Button variant="primary" onClick={guardar} disabled={guardando}>
             {guardando ? 'Guardando…' : 'Guardar cliente'}
           </Button>
@@ -95,6 +100,7 @@ export default function ClientDialog({ abierto, cliente, nombreInicial = '', onC
             placeholder="131-12345-6" />
         </Field>
 
+        {cliente && <p className="text-xs text-ink-soft">Se actualiza la ficha del cliente y, si estás editando un documento, sus datos en ese documento.</p>}
         {error && <p className="text-xs text-overdue-ink">{error}</p>}
 
       </div>

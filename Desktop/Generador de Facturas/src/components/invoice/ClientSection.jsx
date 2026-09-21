@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Pencil, User } from 'lucide-react'
 import Picker from '../ui/Picker.jsx'
 import ClientDialog from './ClientDialog.jsx'
@@ -18,29 +18,28 @@ import * as clients from '../../db/clients.js'
  */
 export default function ClientSection({ client, onChange }) {
   const [dialogo, setDialogo] = useState(null) // null | { cliente, nombreInicial }
-  const [elegido, setElegido] = useState(null)
+  const [error, setError] = useState('')
+  const [cargando, setCargando] = useState(false)
   const [recargar, setRecargar] = useState(0)
 
   const buscar = useCallback((t) => clients.search(t, 20), [])
 
-  // Al abrir una factura ya guardada hay que recuperar el registro del
-  // cliente a partir del nombre congelado, para poder editarlo.
-  useEffect(() => {
-    const nombre = client.name?.trim()
-    if (!nombre) {
-      setElegido(null)
-      return
-    }
-    let vivo = true
-    clients.getByName(nombre).then((c) => vivo && setElegido(c))
-    return () => {
-      vivo = false
-    }
-  }, [client.name])
+  async function editar() {
+    setCargando(true)
+    setError('')
+    try {
+      const registrado = client.id
+        ? await clients.getById(client.id)
+        : await clients.getByName(client.name)
+      setDialogo({ cliente: registrado ?? { ...client, id: null }, nombreInicial: client.name })
+    } catch (e) {
+      setError(String(e?.message ?? e))
+    } finally { setCargando(false) }
+  }
 
   function aplicar(c) {
-    setElegido(c)
     onChange({
+      id: c.id,
       name: c.name,
       email: c.email ?? '',
       phone: c.phone ?? '',
@@ -85,12 +84,13 @@ export default function ClientSection({ client, onChange }) {
         {client.name?.trim() && (
           <button
             type="button"
-            onClick={() => setDialogo({ cliente: elegido, nombreInicial: client.name })}
+            onClick={editar}
+            disabled={cargando}
             className="h-10 px-3 rounded-xl border border-line bg-surface text-ink-soft
               hover:text-ink hover:bg-canvas transition-colors inline-flex items-center gap-1.5
               text-sm shrink-0"
           >
-            <Pencil className="size-3.5" strokeWidth={2} /> Editar
+            <Pencil className="size-3.5" strokeWidth={2} /> {cargando ? 'Cargando…' : 'Editar cliente'}
           </button>
         )}
       </div>
@@ -108,6 +108,7 @@ export default function ClientSection({ client, onChange }) {
         </div>
       )}
 
+      {error && <p role="alert" className="text-xs text-overdue-ink">{error}</p>}
       <ClientDialog
         abierto={!!dialogo}
         cliente={dialogo?.cliente ?? null}

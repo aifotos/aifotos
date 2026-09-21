@@ -218,7 +218,9 @@ export async function save(borrador) {
 
   // El cliente solo se enlaza si YA existe en el catalogo. Uno nuevo se da
   // de alta al emitir, no ahora.
-  const clienteExistente = client.name?.trim() ? await clients.getByName(client.name) : null
+  const clienteExistente = client.id
+    ? await clients.getById(client.id)
+    : client.name?.trim() ? await clients.getByName(client.name) : null
 
   // Las sentencias se preparan TODAS antes de tocar la base y se mandan en
   // un solo lote atomico. Antes se ejecutaban una a una dentro de un BEGIN
@@ -383,7 +385,7 @@ async function aprender(invoiceId) {
   const factura = await getFull(invoiceId)
   if (!factura) return
 
-  const cliente = await clients.upsertByName({
+  const cliente = (factura.client_id ? await clients.getById(factura.client_id) : null) ?? await clients.upsertByName({
     name: factura.client_name,
     email: factura.client_email,
     phone: factura.client_phone,
@@ -510,6 +512,7 @@ export async function duplicate(id) {
     number: null,   // el duplicado nace como borrador, con su propio numero
     kind: original.kind,
     client: {
+      id: original.client_id,
       name: original.client_name,
       email: original.client_email,
       phone: original.client_phone,

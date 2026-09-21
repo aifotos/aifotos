@@ -90,6 +90,7 @@ export async function convertirEnFactura(quoteId, { issue_date, due_date, itemId
     number: null,
     kind: 'invoice',
     client: {
+      id: cot.client_id,
       name: cot.client_name,
       email: cot.client_email,
       phone: cot.client_phone,

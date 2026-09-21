@@ -1,30 +1,34 @@
 import { useEffect, useState } from 'react'
-import { Users, Mail, Phone } from 'lucide-react'
+import { Users, Mail, Phone, Pencil } from 'lucide-react'
 import PageHeader from '../components/layout/PageHeader.jsx'
+import Button from '../components/ui/Button.jsx'
+import ClientDialog from '../components/invoice/ClientDialog.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
 import * as clients from '../db/clients.js'
 
-/**
- * Clientes. No hay boton de "nuevo cliente" a proposito: se crean desde el
- * selector de cliente de la factura, que es donde de verdad los necesitas.
- * Esta pantalla es para consultarlos.
- */
+/** Consulta y edición de la agenda de la cuenta actual. */
 export default function Clients() {
+  const [editando, setEditando] = useState(null)
+  const [error, setError] = useState('')
   const [lista, setLista] = useState([])
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
-    clients.listAll().then(setLista).finally(() => setCargando(false))
+    clients.listAll().then(setLista).catch(e => setError(String(e?.message ?? e))).finally(() => setCargando(false))
   }, [])
 
   return (
     <>
+      <ClientDialog abierto={!!editando} cliente={editando}
+        onCerrar={() => setEditando(null)}
+        onGuardado={cliente => setLista(actual => actual.map(c => c.id === cliente.id ? cliente : c).sort((a, b) => a.name.localeCompare(b.name)))} />
       <PageHeader
         title="Clientes"
         subtitle={cargando ? null : `${lista.length} ${lista.length === 1 ? 'cliente' : 'clientes'}`}
       />
 
       <div className="px-8 py-6">
+        {error && <p role="alert" className="text-overdue-ink mb-4">{error}</p>}
         <div className="bg-surface border border-line rounded-card overflow-hidden">
           {!cargando && lista.length === 0 ? (
             <EmptyState
@@ -57,6 +61,7 @@ export default function Clients() {
                   <p className="text-xs text-ink-faint whitespace-nowrap">
                     {c.times_used} {c.times_used === 1 ? 'factura' : 'facturas'}
                   </p>
+                  <Button size="sm" icon={Pencil} onClick={() => setEditando(c)}>Editar cliente</Button>
                 </div>
               ))}
             </div>
