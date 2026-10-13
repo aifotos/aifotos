@@ -47,7 +47,16 @@ export default function ItemsTable({ items, moneda, onChange }) {
       </h2>
 
       <div className="rounded-xl border border-line overflow-hidden">
-        <div className="grid grid-cols-[1fr_5rem_7rem_7rem_2.25rem] gap-2 px-3 py-2
+        {/* `minmax(0,1fr)` y no `1fr`. Parece lo mismo y no lo es: `1fr`
+            significa `minmax(auto,1fr)`, y ese `auto` impide que la
+            columna baje de lo que mida su contenido. Con un nombre de
+            servicio largo la columna crecia, empujaba al resto y la fila
+            se salia de la caja — que recorta lo que sobra, asi que el
+            boton de borrar quedaba fuera, invisible y sin poder pulsarse.
+            Con `minmax(0,…)` la columna puede encoger y el texto se corta
+            con puntos suspensivos, que es lo que se esperaba desde el
+            principio. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_5rem_7rem_7rem_2.25rem] gap-2 px-3 py-2
           bg-canvas border-b border-line text-[11px] font-semibold
           text-ink-faint uppercase tracking-wide">
           <span>Descripción</span>
@@ -129,7 +138,9 @@ function ItemRow({ item, moneda, buscar, recargar, onModificar, onCrear, onEdita
 
   return (
     <div className="px-3 py-1.5 group">
-     <div className="grid grid-cols-[1fr_5rem_7rem_7rem_2.25rem] gap-2 items-center">
+     {/* La misma plantilla que la cabecera, y por el mismo motivo:
+         ver el comentario de arriba sobre `minmax(0,1fr)`. */}
+     <div className="grid grid-cols-[minmax(0,1fr)_5rem_7rem_7rem_2.25rem] gap-2 items-center">
       <Picker
         valor={item.description ? { name: item.description } : null}
         buscar={buscar}

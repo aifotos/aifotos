@@ -72,7 +72,12 @@ export default function TaxRulesCard({ moneda }) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-ink truncate">
                   {r.name}
-                  {r.archived && <span className="text-xs text-ink-faint"> · archivada</span>}
+                  {/* `=== 1` y no `r.archived &&`: en SQLite es un entero, y
+                      `0 && algo` vale 0 — que React pinta como un «0»
+                      pegado al nombre de la regla. */}
+                  {r.archived === 1 && (
+                    <span className="text-xs text-ink-faint"> · archivada</span>
+                  )}
                 </p>
                 <p className="text-xs text-ink-faint truncate">
                   {r.base === 'fixed'

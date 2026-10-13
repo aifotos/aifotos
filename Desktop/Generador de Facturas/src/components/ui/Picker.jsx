@@ -113,7 +113,12 @@ export default function Picker({
           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100
           ${valor ? 'text-ink' : 'text-ink-faint'} ${className}`}
       >
-        <span className="truncate">{valor ? textoDe(valor) : placeholder}</span>
+        {/* `min-w-0` junto a `truncate`: sin el no corta nada. Un hijo
+            de flex arranca con `min-width:auto`, que le prohibe encogerse
+            por debajo de su contenido, y como `truncate` ademas pone
+            `white-space:nowrap`, el texto entero cuenta como tamano
+            minimo y empuja todo lo que tenga al lado. */}
+        <span className="truncate min-w-0">{valor ? textoDe(valor) : placeholder}</span>
         <ChevronDown className="size-4 shrink-0 text-ink-faint" strokeWidth={2} />
       </button>
 
