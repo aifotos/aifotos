@@ -20,6 +20,7 @@ import v2 from '../../src-tauri/migrations/002_numeracion_de_borradores.sql?raw'
 import v3 from '../../src-tauri/migrations/003_cotizaciones.sql?raw'
 import v4 from '../../src-tauri/migrations/004_cuentas_e_impuestos.sql?raw'
 import v5 from '../../src-tauri/migrations/005_costos_y_pagos.sql?raw'
+import v6 from '../../src-tauri/migrations/006_costeos.sql?raw'
 import { datosDeEjemplo } from './seed.js'
 
 const CLAVE = 'facturapro:dev-db'
@@ -29,7 +30,7 @@ const CLAVE_VERSION = 'facturapro:dev-db-version'
  * Las migraciones, en orden. El indice + 1 es su version, igual que en
  * `migrations()` de src-tauri/src/lib.rs.
  */
-const MIGRACIONES = [v1, v2, v3, v4, v5]
+const MIGRACIONES = [v1, v2, v3, v4, v5, v6]
 
 /** Adaptador con la misma interfaz que `@tauri-apps/plugin-sql`. */
 class BrowserDatabase {

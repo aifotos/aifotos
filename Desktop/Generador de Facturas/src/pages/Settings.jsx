@@ -5,8 +5,18 @@ import Button from '../components/ui/Button.jsx'
 import Field, { inputClass, textareaClass } from '../components/ui/Field.jsx'
 import LogoUploader from '../components/settings/LogoUploader.jsx'
 import TaxRulesCard from '../components/settings/TaxRulesCard.jsx'
+import { MARGENES, formatoMargen } from '../lib/costeo.js'
 import PasswordCard from '../components/settings/PasswordCard.jsx'
 import * as settings from '../db/settings.js'
+
+/** Pasos de redondeo del precio de venta, en centavos. */
+const REDONDEOS = [
+  { cents: 0, label: 'Sin redondear' },
+  { cents: 100, label: 'Al peso' },
+  { cents: 1000, label: 'A RD$ 10' },
+  { cents: 5000, label: 'A RD$ 50' },
+  { cents: 10000, label: 'A RD$ 100' },
+]
 
 /** Colores de acento sugeridos para las bandas del documento. */
 const ACENTOS = ['#F5C851', '#3B74F5', '#101318', '#12805C', '#C2410C', '#7C3AED']
@@ -181,6 +191,69 @@ export default function Settings({ cuenta, onGuardado }) {
             Bajar el próximo número por debajo de uno ya emitido hará que el guardado falle
             cuando llegue a repetirse: dentro de una cuenta, dos facturas no pueden llevar
             el mismo.
+          </p>
+        </section>
+
+        <section className="bg-surface border border-line rounded-card p-6 space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Costeo</h2>
+            <p className="mt-0.5 text-xs text-ink-faint leading-relaxed">
+              El margen va sobre el precio de venta: <span className="text-ink-soft">precio =
+              costo ÷ (1 − margen)</span>. Con un costo de 2,500 al 20 % el precio es 3,125 y
+              ganas 625. Multiplicar por 1.20 daría 3,000 y solo 500, que sobre el precio es un
+              16.7 %.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Margen de mano de obra" hint="Con el que arranca cada línea">
+              <select className={inputClass} value={datos.margin_labor_bp}
+                onChange={(e) => cambiar('margin_labor_bp', Number(e.target.value))}>
+                {MARGENES.map((bp) => (
+                  <option key={bp} value={bp}>{formatoMargen(bp)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Margen de materiales" hint="Con el que arranca cada línea">
+              <select className={inputClass} value={datos.margin_material_bp}
+                onChange={(e) => cambiar('margin_material_bp', Number(e.target.value))}>
+                {MARGENES.map((bp) => (
+                  <option key={bp} value={bp}>{formatoMargen(bp)}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Margen residencial" hint="El segundo precio">
+              <select className={inputClass} value={datos.margin_secondary_bp}
+                onChange={(e) => cambiar('margin_secondary_bp', Number(e.target.value))}>
+                {MARGENES.map((bp) => (
+                  <option key={bp} value={bp}>{formatoMargen(bp)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Redondeo empresa">
+              <select className={inputClass} value={datos.rounding_primary_cents}
+                onChange={(e) => cambiar('rounding_primary_cents', Number(e.target.value))}>
+                {REDONDEOS.map((r) => (
+                  <option key={r.cents} value={r.cents}>{r.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Redondeo residencial">
+              <select className={inputClass} value={datos.rounding_secondary_cents}
+                onChange={(e) => cambiar('rounding_secondary_cents', Number(e.target.value))}>
+                {REDONDEOS.map((r) => (
+                  <option key={r.cents} value={r.cents}>{r.label}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <p className="text-xs text-ink-faint leading-relaxed">
+            A una empresa se le cotiza el número exacto: uno redondo parece inventado y lo
+            revisan. Al residencial, el precio redondeado del segundo margen.
           </p>
         </section>
 

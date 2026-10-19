@@ -57,6 +57,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/005_costos_y_pagos.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "costeos: precio de venta por margen, con su conversion a cotizacion",
+            sql: include_str!("../migrations/006_costeos.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

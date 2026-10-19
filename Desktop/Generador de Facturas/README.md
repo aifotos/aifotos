@@ -272,6 +272,54 @@ Los bloques del encabezado (lugar del servicio, condiciones de credito…)
 solo se imprimen si tienen contenido: en una factura de fotografia estan
 vacios y una rejilla de etiquetas en blanco ensucia el papel.
 
+### Costeos: margen sobre precio de venta, no markup
+
+La regla de toda la seccion esta en `lib/costeo.js` y es una sola linea:
+
+```
+precio = costo / (1 - margen)
+```
+
+Con un costo de 2.500 y un 20 %, el precio es 3.125 y la ganancia 625,
+que es el 20 % de 3.125. Multiplicar (2.500 x 1,20 = 3.000) daria 500 de
+ganancia, que sobre el precio es un 16,7 %: casi un cuarto menos de lo
+que creerias estar ganando. Es el error clasico de cualquier hoja de
+costeo y por eso la division vive en un solo sitio.
+
+Un costeo es un documento con cabecera y lineas, no una lista de filas:
+el Excel del que viene ya las agrupaba por numero de cotizacion, porque
+lo que se costea es un trabajo entero. **Nunca se imprime.** Vive en
+`costings` / `costing_lines` y la plantilla del PDF no las conoce; la
+cotizacion se construye desde cero con los precios ya calculados, no
+copiando la linea del costeo, asi que el costo no tiene por donde
+colarse.
+
+Cada linea se cobra de una de tres formas (`price_mode`):
+
+| | |
+| --- | --- |
+| `margin` | `costo / (1 - margen)`, con el margen del desplegable |
+| `double` | el doble del costo. No es un margen, es un seguro: hay materiales que se rompen al instalarlos y se cobran dos para poder reponer uno sin discutir. Lleva su motivo al lado |
+| `manual` | un precio cerrado, sin cuentas |
+
+Y se calculan siempre DOS precios: el de empresa, con el margen de la
+linea, y el residencial, con su propio margen y su propio redondeo
+(`margin_secondary_bp`). No es "el mismo precio redondeado" aunque en el
+Excel se llamara asi: alli uno salia de dividir entre 0,8 y el otro entre
+0,7, o sea 8.380 contra 9.600 sobre el mismo costo. Son dos decisiones,
+no un formato.
+
+**La entrega cuenta como costo.** En el Excel el precio si se calculaba
+sobre costo + entrega pero el margen se comparaba solo contra el costo,
+asi que la hoja declaraba un 31,8 % donde habia un 25 %. Si se paga, es
+costo.
+
+Al convertir, el costeo queda enlazado a su cotizacion —igual que una
+cotizacion a su factura— y ese enlace impide generarla dos veces. Los
+costos se apuntan ademas como **previstos** en `costs`, que ya existia con
+su `planned` / `actual`: no hay un segundo registro de costos, y la
+comparacion contra el gasto real sale sola.
+
 ### Regla de oro de las migraciones
 
 `src-tauri/migrations/001_esquema_inicial.sql` **no se toca nunca mas**.
@@ -356,6 +404,7 @@ porque una ventana en blanco no dice nada por si sola.
 - [x] Cuentas separadas con acceso por contrasena
 - [x] Impuestos y retenciones creables por cuenta
 - [x] Logo del negocio y formato de documento comun
+- [x] Costeos con margen sobre precio de venta y conversion a cotizacion
 
 
 ## Costos, abonos y resultados (migración 005)

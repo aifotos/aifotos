@@ -19,6 +19,8 @@ const CAMPOS = [
   'logo_data_url', 'accent_color', 'currency_symbol', 'invoice_prefix',
   'number_padding', 'next_invoice_number', 'payment_terms_days',
   'default_notes', 'payment_details', 'default_user',
+  'margin_labor_bp', 'margin_material_bp', 'margin_secondary_bp',
+  'rounding_primary_cents', 'rounding_secondary_cents',
 ]
 
 export async function update(datos) {
@@ -42,6 +44,13 @@ export async function update(datos) {
     datos.default_notes ?? '',
     datos.payment_details ?? '',
     datos.default_user ?? '',
+    // Los margenes se topan en 99,99 %: al 100 % la formula del precio
+    // (costo / (1 - margen)) seria una division por cero.
+    margen(datos.margin_labor_bp, 2000),
+    margen(datos.margin_material_bp, 2000),
+    margen(datos.margin_secondary_bp, 3000),
+    Math.max(0, Number(datos.rounding_primary_cents) || 0),
+    Math.max(0, Number(datos.rounding_secondary_cents) || 0),
   ]
   await execute(
     `UPDATE settings SET
@@ -51,6 +60,12 @@ export async function update(datos) {
     [...valores, cuenta],
   )
   return get()
+}
+
+function margen(valor, porDefecto) {
+  const n = Math.round(Number(valor))
+  if (!Number.isFinite(n)) return porDefecto
+  return Math.min(9999, Math.max(0, n))
 }
 
 /**

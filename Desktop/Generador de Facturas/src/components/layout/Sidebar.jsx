@@ -1,4 +1,4 @@
-import { FileText, FileSignature, Users, Package, Settings, Plus, LogOut, BarChart3, Wallet } from 'lucide-react'
+import { FileText, FileSignature, Users, Package, Settings, Plus, LogOut, Calculator, BarChart3, Wallet } from 'lucide-react'
 import Button from '../ui/Button.jsx'
 
 const SECCIONES = [
@@ -6,6 +6,9 @@ const SECCIONES = [
   { id: 'costs', label: 'Costos y gastos', icon: Wallet },
   { id: 'invoices', label: 'Facturas', icon: FileText },
   { id: 'quotes', label: 'Cotizaciones', icon: FileSignature },
+  // Entre cotizaciones y clientes a proposito: el costeo es el paso de
+  // antes de cotizar, y el menu lee en el orden en que se trabaja.
+  { id: 'costings', label: 'Costeos', icon: Calculator },
   { id: 'clients', label: 'Clientes', icon: Users },
   { id: 'services', label: 'Servicios', icon: Package },
   { id: 'settings', label: 'Ajustes', icon: Settings },

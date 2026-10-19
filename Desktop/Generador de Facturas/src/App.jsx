@@ -10,6 +10,8 @@ import Clients from './pages/Clients.jsx'
 import Services from './pages/Services.jsx'
 import Settings from './pages/Settings.jsx'
 import InvoiceEditor from './pages/InvoiceEditor.jsx'
+import Costings from './pages/Costings.jsx'
+import CostingEditor from './pages/CostingEditor.jsx'
 import * as settings from './db/settings.js'
 import * as auth from './db/auth.js'
 import { doc as vocabulario } from './lib/documentos.js'
@@ -35,6 +37,9 @@ export default function App() {
   // `null` = no hay editor abierto. Si no, { id, kind }: un id numerico abre
   // ese documento y 'nuevo' abre un borrador en blanco del tipo indicado.
   const [editando, setEditando] = useState(null)
+  // El costeo tiene su propio editor y su propio estado: `null` = cerrado,
+  // 'nuevo' = en blanco, un id = ese costeo.
+  const [costeando, setCosteando] = useState(null)
   const [ajustes, setAjustes] = useState(null)
   const [error, setError] = useState(null)
 
@@ -67,6 +72,7 @@ export default function App() {
     // remont, porque su siguiente autoguardado escribiria en la cuenta
     // equivocada.
     setEditando(null)
+    setCosteando(null)
     setAjustes(null)
     setSeccion('invoices')
     setCuenta(null)
@@ -108,6 +114,35 @@ export default function App() {
 
   const nuevoDocumento = () => setEditando({ id: 'nuevo', kind: kindActual })
   const abrirDocumento = (doc) => setEditando({ id: doc.id, kind: doc.kind ?? 'invoice' })
+
+  // El editor de costeos tambien ocupa la ventana entera, y ademas la
+  // necesita: la tabla de lineas lleva costo, entrega, margen y precio, y
+  // no cabe compartiendo ancho con la barra lateral.
+  if (costeando !== null) {
+    return (
+      <>
+        <DragStrip />
+        <CostingEditor
+          key={`costeo-${costeando}`}
+          ajustes={ajustes}
+          costeoId={costeando === 'nuevo' ? null : costeando}
+          onSalir={() => {
+            setCosteando(null)
+            // La numeracion puede haberse consumido.
+            settings.get().then(setAjustes).catch(() => {})
+          }}
+          // Tras generar la cotizacion saltamos a ella: es lo que quieres
+          // mirar justo despues, para revisarla antes de mandarla.
+          onAbrirCotizacion={(cot) => {
+            setCosteando(null)
+            setSeccion('quotes')
+            setEditando({ id: cot.id, kind: 'quote' })
+            settings.get().then(setAjustes).catch(() => {})
+          }}
+        />
+      </>
+    )
+  }
 
   // El editor ocupa toda la ventana: no comparte sitio con la barra lateral,
   // porque al escribir una factura no quieres nada mas en pantalla.
@@ -164,6 +199,13 @@ export default function App() {
       )}
       {seccion === 'analytics' && <Analytics moneda={moneda} />}
       {seccion === 'costs' && <Costs moneda={moneda} />}
+      {seccion === 'costings' && (
+        <Costings
+          moneda={moneda}
+          onNuevo={() => setCosteando('nuevo')}
+          onAbrir={(c) => setCosteando(c.id)}
+        />
+      )}
       {seccion === 'clients' && <Clients />}
       {seccion === 'services' && <Services moneda={moneda} />}
       {seccion === 'settings' && (
